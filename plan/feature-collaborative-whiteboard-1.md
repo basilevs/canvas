@@ -34,6 +34,8 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 - **REQ-016**: Board owner can override (force) the visible pseudonym of any member on their board; the forced name is what all other members see regardless of the user's self-chosen name
 - **SEC-001**: User identity is bound to the browser instance via a server-issued session token (HttpOnly cookie or SignalR connection token), automatically established on first access — no login or name entry required
 - **SEC-002**: Users cannot impersonate another user; the server assigns and validates identity — client-supplied user IDs are never trusted
+- **SEC-003**: IP-based rate limiting: configurable request cap per IP range (e.g., /24 subnet) to mitigate abuse from shared networks or botnets
+- **SEC-004**: User-based rate limiting: configurable cap on actions (strokes, invites, joins) per user identity per time window to prevent spam and resource exhaustion
 - **CON-001**: Target framework is .NET 10.0 (already configured in canvas.csproj)
 - **CON-002**: MongoDB Atlas (free tier M0, replica set) is the sole persistence layer — no local MongoDB daemon required
 - **CON-003**: Real-time communication must use ASP.NET Core SignalR (WebSocket transport preferred)
@@ -59,9 +61,12 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 | TASK-004 | Register MongoDB services in `Program.cs` using `builder.Services.AddSingleton<MongoDbContext>()` | | |
 | TASK-005 | Add `builder.Services.AddSignalR()` and map hub endpoint `app.MapHub<WhiteboardHub>("/hub/whiteboard")` in `Program.cs` | | |
 | TASK-006 | Create identity middleware in `Middleware/UserIdentityMiddleware.cs`: on each request, check for `X-User-Id` HttpOnly cookie. If absent, generate a new UUID, set it as an HttpOnly/Secure/SameSite=Strict cookie, and attach to `HttpContext.Items["UserId"]`. SignalR hub reads userId from `Context.GetHttpContext().Items["UserId"]` — client never supplies its own identity. | | |
-| TASK-007 | Register middleware in `Program.cs` before `UseStaticFiles`: `app.UseMiddleware<UserIdentityMiddleware>()` | | |
-| TASK-008 | Add `app.UseStaticFiles()` in `Program.cs` and create `wwwroot/` directory for frontend assets | | |
-| TASK-009 | Remove the default weather forecast endpoint from `Program.cs` | | |
+| TASK-007 | Add rate limiting via `Microsoft.AspNetCore.RateLimiting` (built-in). Configure two policies in `Program.cs`: (1) `"ip-range"` — sliding window limiter keyed by client IP /24 subnet (configurable in appsettings: `RateLimits:IpWindowSeconds`, `RateLimits:IpMaxRequests`); (2) `"user"` — sliding window limiter keyed by userId from cookie (configurable: `RateLimits:UserWindowSeconds`, `RateLimits:UserMaxRequests`). Apply both to hub and API endpoints. | | |
+| TASK-008 | Create `Middleware/RateLimitKeyProviders.cs` — helper methods: `GetSubnetKey(HttpContext)` (extracts client IP, masks to /24), `GetUserKey(HttpContext)` (reads userId from Items). | | |
+| TASK-009 | Add rate limit configuration section to `appsettings.json`: `"RateLimits": { "IpWindowSeconds": 60, "IpMaxRequests": 200, "UserWindowSeconds": 10, "UserMaxRequests": 30 }` (defaults; tunable without redeployment via config reload). | | |
+| TASK-010 | Register middleware in `Program.cs`: `app.UseRateLimiter()` before `app.UseMiddleware<UserIdentityMiddleware>()`; identity middleware before `UseStaticFiles`. | | |
+| TASK-011 | Add `app.UseStaticFiles()` in `Program.cs` and create `wwwroot/` directory for frontend assets | | |
+| TASK-012 | Remove the default weather forecast endpoint from `Program.cs` | | |
 
 ### Implementation Phase 2
 
@@ -165,10 +170,11 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 
 ## 5. Files
 
-- **FILE-001**: `Program.cs` — Application entry point; configure services (MongoDB, SignalR, static files, identity middleware), map endpoints and hub
+- **FILE-001**: `Program.cs` — Application entry point; configure services (MongoDB, SignalR, static files, rate limiting, identity middleware), map endpoints and hub
 - **FILE-002**: `canvas.csproj` — Add MongoDB.Driver package reference
-- **FILE-003**: `appsettings.json` — Add MongoDB database name configuration (no secrets)
+- **FILE-003**: `appsettings.json` — Add MongoDB database name and rate limit configuration (no secrets)
 - **FILE-004**: `Middleware/UserIdentityMiddleware.cs` — Assigns and validates server-side user identity via HttpOnly cookie
+- **FILE-005**: `Middleware/RateLimitKeyProviders.cs` — IP subnet and user-based rate limit key extraction helpers
 - **FILE-005**: `Models/Board.cs` — Board document model with ownership, membership (BoardMember with ForcedName), visibility, HiddenRanges, embedded `ActiveStrokes` snapshot
 - **FILE-006**: `Models/BoardMember.cs` — Embedded member value object (UserId + optional ForcedName override)
 - **FILE-007**: `Models/UserProfile.cs` — User document with self-chosen DisplayName (global, stored in Users collection)
