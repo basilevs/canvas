@@ -1,0 +1,18 @@
+# Build outputs
+bin/
+obj/
+
+# User secrets
+secrets.json
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+# macOS
+.DS_Store
+
+# dotnet tools
+.dotnet/
