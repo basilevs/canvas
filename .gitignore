@@ -16,3 +16,6 @@ secrets.json
 
 # dotnet tools
 .dotnet/
+
+# Test outputs
+Tests/TestResults/

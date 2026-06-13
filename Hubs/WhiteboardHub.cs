@@ -6,7 +6,7 @@ using System.Collections.Concurrent;
 
 namespace Canvas.Hubs;
 
-public sealed class WhiteboardHub : Hub<IWhiteboardClient>
+public class WhiteboardHub : Hub<IWhiteboardClient>
 {
     private static readonly ConcurrentDictionary<string, UserConnection> Connections = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<string, DateTime> LastActivityRefreshes = new(StringComparer.Ordinal);
@@ -214,6 +214,11 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
 
     private string GetUserId()
     {
+        if (Context.Items.TryGetValue("UserId", out var itemValue) && itemValue is string itemUserId)
+        {
+            return itemUserId;
+        }
+
         var httpContext = Context.GetHttpContext()
             ?? throw new HubException("User identity is not available.");
 
