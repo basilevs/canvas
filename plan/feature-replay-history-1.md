@@ -57,7 +57,7 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-001 | Add REST endpoint `GET /api/boards/{name}/history` in `Program.cs` with query parameters: `userId` (string, resolved from cookie), `page` (int, default 1), `pageSize` (int, default 100, max 500). Route: `app.MapGet("/api/boards/{name}/history", ...)` | | |
+| TASK-001 | Add REST endpoint `GET /api/boards/{name}/history` in `Program.cs` with query parameters `page` (int, default 1) and `pageSize` (int, default 100, max 500). The caller's identity is **not** a query/body parameter — it is resolved server-side from `HttpContext.Items["UserId"]` (see TASK-002) and never trusted from the client (consistent with the parent plan's SEC-002), so it cannot be supplied or spoofed via the URL (avoids leaking identity through `Referer`/logs/history). Route: `app.MapGet("/api/boards/{name}/history", ...)` | | |
 | TASK-002 | Implement endpoint handler: resolve userId from `HttpContext.Items["UserId"]`, verify membership via `BoardService.IsMemberAsync`, return 403 if unauthorized. Fetch the board. | | |
 | TASK-003 | Return all StrokeEvents for the board ordered by Timestamp, paginated. Note: owner-controlled HiddenRanges filtering for non-owner members is layered onto this handler by [feature-history-cutoff-moderation-1.md](./feature-history-cutoff-moderation-1.md); on its own this plan serves the unfiltered history to any member. | | |
 | TASK-004 | Return JSON response: `{ "events": [...], "page": 1, "pageSize": 100, "totalEvents": N, "totalPages": M }`. Each event includes: `id`, `type` (Add/Remove), `stroke` (with id, points, color, width, duration), `timestamp`. | | |
