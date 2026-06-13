@@ -160,8 +160,8 @@ class WhiteboardCanvas {
   toCanvasPoint(event) {
     const rect = this.canvas.getBoundingClientRect();
     return {
-      x: (event.clientX - rect.left) * this.devicePixelRatio,
-      y: (event.clientY - rect.top) * this.devicePixelRatio
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top
     };
   }
 
@@ -225,7 +225,7 @@ class WhiteboardCanvas {
     context.strokeStyle = '#ffffff';
     context.lineWidth = 2 * this.devicePixelRatio;
     context.beginPath();
-    context.arc(x, y, 5 * this.devicePixelRatio, 0, Math.PI * 2);
+    context.arc(x * this.devicePixelRatio, y * this.devicePixelRatio, 5 * this.devicePixelRatio, 0, Math.PI * 2);
     context.fill();
     context.stroke();
     context.restore();
