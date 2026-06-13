@@ -65,8 +65,13 @@ This document covers the MVP only: anonymous drawing, real-time stroke and curso
 - **Board creation and joining by URL** (Priority: high)
 
   - Visiting a named board URL joins that board, creating it on first visit.
-  - A collaborator with no preferred name can trigger a "start a new board" action that generates a unique, URL-safe board name and takes them to it.
+  - A collaborator with no preferred name can navigate to a dedicated new-board URL that redirects them onto a freshly generated, uniquely named board (no button or form).
   - All boards are public and joinable by anyone with the URL.
+
+- **Return to last board from the home page** (Priority: medium)
+
+  - Visiting the site root takes a returning collaborator straight to the board they were last editing, without entering or remembering a slug.
+  - A collaborator with no prior board is taken to a freshly created new board instead.
 
 - **Freehand drawing** (Priority: high)
 
@@ -105,7 +110,8 @@ This document covers the MVP only: anonymous drawing, real-time stroke and curso
 ### 5.1 Entry points & first-time user flow
 
 - A collaborator arrives via a shared board URL (e.g., from a chat message or pasted link).
-- A collaborator with no link or name in mind can instead start a fresh board from the landing page, which generates a board name for them and takes them straight to it.
+- A collaborator with no link or name in mind can instead navigate to a dedicated new-board URL, which redirects them straight onto a freshly generated, uniquely named board.
+- A returning collaborator who simply opens the site root is redirected to the board they were last editing, so they resume without remembering its URL; a first-time visitor with no prior board is sent to a freshly created new board.
 - On first access the server silently issues an anonymous identity cookie; no prompt or sign-up appears.
 - The board loads with the current drawing already rendered, and the collaborator can draw right away.
 - An optional display-name field invites them to identify themselves, defaulting to an anonymous label if skipped.
@@ -341,11 +347,21 @@ A collaborator receives a board link in a group chat and clicks it. The whiteboa
 ### 10.12. Create a new board without choosing a name
 
 - **ID**: GH-012
-- **Description**: As an anonymous collaborator who just wants to start drawing and has no particular board name or URL in mind, I want to create a fresh board with a system-generated name so that I can begin immediately and share the resulting link.
+- **Description**: As an anonymous collaborator who just wants to start drawing and has no particular board name or URL in mind, I want to reach a fresh board simply by navigating to a dedicated new-board URL, so that I can begin immediately with zero clicks and share the resulting board link.
 - **Acceptance criteria**:
 
-  - From the landing page, a "start a new board" action creates a board with a system-generated, unique, URL-safe name and navigates the collaborator to that board's URL.
-  - The new board opens ready to draw on, as an empty canvas.
-  - The generated name does not collide with an existing board; each action yields a new, distinct board.
-  - The generated name is sufficiently random to be hard to guess, so the action does not accidentally drop the collaborator into an unrelated existing board.
-  - The resulting URL can be copied and shared so other collaborators join the same board.
+  - Navigating to a dedicated new-board URL (no button, form, or prompt) lands the collaborator on a freshly created, uniquely named, empty board ready to draw on.
+  - Each visit to the new-board URL yields a distinct new board; the new-board URL is not itself a shared drawing space.
+  - The collaborator shares the resulting board's own URL (not the new-board URL) so others join the same board; revisiting that board URL rejoins the same board.
+  - The generated board name is URL-safe and hard to guess, so the collaborator is not dropped onto an unrelated existing board.
+
+### 10.13. Resume the last-edited board from the home page
+
+- **ID**: GH-013
+- **Description**: As a returning anonymous collaborator, I want opening the site's home page to take me straight back to the board I was last editing, so that I can resume without remembering or typing its URL.
+- **Acceptance criteria**:
+
+  - Opening the site root in the same browser redirects the collaborator to the board they most recently joined or edited, landing on that board ready to draw.
+  - The board they are taken to reflects the most recent board they worked on across visits in that browser.
+  - A collaborator who has never edited a board is instead taken to a freshly created new board (the no-prior-board fallback).
+  - Opening the home page does not by itself create, modify, or clear any board; it only routes the collaborator to an existing board (or to new-board creation when none exists).
