@@ -129,16 +129,13 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 
 ### Implementation Phase 5
 
-- GOAL-005: Implement history replay and REST API endpoints for board management
+- GOAL-005: Implement REST API endpoints for board management (replay functionality extracted to [feature-replay-history-1.md](./feature-replay-history-1.md))
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
 | TASK-036 | Add REST endpoint `GET /api/boards` — returns list of public boards with active stroke counts (requires no auth) | | |
 | TASK-037 | Add REST endpoint `GET /api/boards/{name}/snapshot` — returns current board snapshot; enforce access (public boards: open, private boards: require userId query param + membership check) | | |
-| TASK-038 | Add REST endpoint `GET /api/boards/{name}/history?userId=UUID` — returns event log filtered by HiddenRanges for non-owner callers (events matching hidden user+timestamp are excluded); owner receives unfiltered history. Paginated, 100 per page. | | |
-| TASK-039 | Add REST endpoint `DELETE /api/boards/{name}` — owner-only; clears snapshot and all history for a board | | |
-| TASK-040 | Implement frontend replay mode in `wwwroot/js/replay.js`: fetch full history from `GET /api/boards/{name}/history`, step through stroke events using `Timestamp` for inter-stroke timing and `Point.TimeOffset` for intra-stroke animation; skip inactivity gaps exceeding a configurable threshold (default 3s); play/pause/seek controls; playback speed multiplier (1x/2x/4x) | | |
-| TASK-041 | Add replay button to `index.html` toolbar that triggers replay mode overlay on the canvas | | |
+| TASK-038 | Add REST endpoint `DELETE /api/boards/{name}` — owner-only; clears snapshot and all history for a board | | |
 
 ### Implementation Phase 6
 
@@ -194,7 +191,7 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 - **FILE-021**: `wwwroot/js/connection.js` — SignalR client wrapper with identity via cookie
 - **FILE-022**: `wwwroot/js/admin.js` — Owner settings panel (invites, visibility, member management, forced names)
 - **FILE-023**: `wwwroot/js/app.js` — Application orchestrator with invite URL detection and name editing
-- **FILE-024**: `wwwroot/js/replay.js` — History replay module (fetches event log, animates with gap compression)
+- **FILE-024**: `plan/feature-replay-history-1.md` — Extracted replay feature plan (history endpoint, animation engine, UI controls)
 - **FILE-025**: `wwwroot/css/style.css` — Stylesheet
 - **FILE-026**: `.gitignore` — Exclude bin/, obj/, user-secrets, IDE files
 - **FILE-027**: `README.md` — Project documentation with Atlas setup, invite flow, and name management
@@ -223,7 +220,7 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 - **TEST-015**: Integration test — Non-owner cannot call `HideContributions` or `RestoreContributions` (rejected with error)
 - **TEST-016**: Manual test — Open two browser tabs on the same board URL, draw in one, verify stroke appears in the other within 100ms
 - **TEST-017**: Manual test — Refresh page after drawing; verify all active strokes load instantly from snapshot
-- **TEST-018**: Manual test — Click replay button; verify strokes animate in chronological order with inactivity gaps compressed
+- **TEST-018**: Manual test — Click replay button; verify strokes animate in chronological order with inactivity gaps compressed (detailed tests in [feature-replay-history-1.md](./feature-replay-history-1.md))
 - **TEST-019**: Manual test — Generate invite link as owner, open in incognito window, verify new user gains access to private board
 - **TEST-020**: Manual test — As owner, hide a member's contributions, toggle "show hidden" on/off, verify canvas updates correctly
 
@@ -241,6 +238,7 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 
 ## 8. Related Specifications / Further Reading
 
+- [Replay & History View feature plan](./feature-replay-history-1.md) — extracted sub-plan for video-like replay functionality
 - [ASP.NET Core SignalR documentation](https://learn.microsoft.com/en-us/aspnet/core/signalr/introduction)
 - [MongoDB.Driver .NET documentation](https://www.mongodb.com/docs/drivers/csharp/current/)
 - [HTML5 Canvas API reference](https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API)
