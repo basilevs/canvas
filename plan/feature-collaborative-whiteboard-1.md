@@ -66,9 +66,9 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-010 | Create `Models/Board.cs` — properties: `Id` (ObjectId), `Name` (string), `OwnerId` (string, UUID of first user to access), `IsPublic` (bool, default true), `MembersCanInvite` (bool, default false), `Members` (List<BoardMember>), `CreatedAt` (DateTime), `LastActivityAt` (DateTime), `ActiveStrokes` (List<Stroke>, embedded snapshot — includes ALL strokes, filtering applied at serve time). Note: `HiddenRanges` is added by [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md) | | |
-| TASK-011 | Create `Models/BoardMember.cs` — properties: `UserId` (string). Embedded in Board.Members. Note: owner-forced `ForcedName` override is added by [feature-board-administration-1.md](./feature-board-administration-1.md) | | |
-| TASK-012 | Create `Models/UserProfile.cs` — properties: `Id` (ObjectId), `UserId` (string, unique, server-assigned UUID), `DisplayName` (string, user-chosen pseudonym, default "Anonymous"), `CreatedAt` (DateTime). Stored in a `Users` collection. | | |
+| TASK-013 | Create `Models/Board.cs` — properties: `Id` (ObjectId), `Name` (string), `OwnerId` (string, UUID of first user to access), `IsPublic` (bool, default true), `MembersCanInvite` (bool, default false), `Members` (List<BoardMember>), `CreatedAt` (DateTime), `LastActivityAt` (DateTime), `ActiveStrokes` (List<Stroke>, embedded snapshot — includes ALL strokes, filtering applied at serve time). Note: `HiddenRanges` is added by [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md) | | |
+| TASK-014 | Create `Models/BoardMember.cs` — properties: `UserId` (string). Embedded in Board.Members. Note: owner-forced `ForcedName` override is added by [feature-board-administration-1.md](./feature-board-administration-1.md) | | |
+| TASK-020 | Create `Models/UserProfile.cs` — properties: `Id` (ObjectId), `UserId` (string, unique, server-assigned UUID), `DisplayName` (string, user-chosen pseudonym, default "Anonymous"), `CreatedAt` (DateTime). Stored in a `Users` collection. | | |
 | TASK-015 | Create `Models/Stroke.cs` — properties: `Id` (ObjectId), `BoardId` (string), `UserId` (string), `Points` (List<Point>), `Color` (string), `Width` (float), `Timestamp` (DateTime, server-assigned UTC time when stroke was received), `Duration` (long, milliseconds from first point to last point in the stroke as measured by client), `SequenceNumber` (long). | | |
 | TASK-016 | Create `Models/StrokeEvent.cs` — properties: `Id` (ObjectId), `BoardId` (string), `Type` (enum: `Add`/`Remove`), `Stroke` (Stroke, the stroke added or removed), `UserId` (string), `Timestamp` (DateTime), `SequenceNumber` (long). Append-only event log for history replay and undo. | | |
 | TASK-017 | Create `Models/Point.cs` — properties: `X` (double), `Y` (double), `Pressure` (double, optional), `TimeOffset` (long, milliseconds since stroke start — enables point-by-point animated replay within a single stroke) | | |
@@ -114,7 +114,7 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 |------|-------------|-----------|------|
 | TASK-036 | Add REST endpoint `GET /api/boards` — returns list of public boards with active stroke counts (requires no auth) | | |
 | TASK-037 | Add REST endpoint `GET /api/boards/{name}/snapshot` — returns the current board snapshot; open access in the MVP, where all boards are public. Note: private-board access enforcement (require userId + membership check, return 403 for non-members) is layered onto this endpoint by [feature-board-administration-1.md](./feature-board-administration-1.md). | | |
-| TASK-038 | Add REST endpoint `DELETE /api/boards/{name}` — owner-only; clears snapshot and all history for a board | | |
+| TASK-048 | Add REST endpoint `DELETE /api/boards/{name}` — owner-only; clears snapshot and all history for a board | | |
 
 ### Implementation Phase 6
 
@@ -122,10 +122,10 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-042 | Create `README.md` with: project overview, architecture diagram (text), prerequisites (dotnet 10 SDK, Atlas account), setup instructions (user-secrets configuration), and usage guide | | |
-| TASK-043 | Add `.gitignore` entries to ensure user-secrets and `obj/`/`bin/` are excluded | | |
-| TASK-044 | Add integration test: `Tests/WhiteboardHubTests.cs` — verify JoinBoard returns the snapshot and broadcasts `UserJoined`, SendStroke persists and broadcasts, UndoLastStroke removes the caller's last stroke. (Private-board access-denial tests are in [feature-board-administration-1.md](./feature-board-administration-1.md).) | | |
-| TASK-047 | Add unit test: `Tests/StrokeEventServiceTests.cs` — verify event append and query operations against Atlas (test database) | | |
+| TASK-049 | Create `README.md` with: project overview, architecture diagram (text), prerequisites (dotnet 10 SDK, Atlas account), setup instructions (user-secrets configuration), and usage guide | | |
+| TASK-050 | Add `.gitignore` entries to ensure user-secrets and `obj/`/`bin/` are excluded | | |
+| TASK-051 | Add integration test: `Tests/WhiteboardHubTests.cs` — verify JoinBoard returns the snapshot and broadcasts `UserJoined`, SendStroke persists and broadcasts, UndoLastStroke removes the caller's last stroke. (Private-board access-denial tests are in [feature-board-administration-1.md](./feature-board-administration-1.md).) | | |
+| TASK-052 | Add unit test: `Tests/StrokeEventServiceTests.cs` — verify event append and query operations against Atlas (test database) | | |
 
 ## 3. Alternatives
 
