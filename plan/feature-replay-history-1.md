@@ -14,7 +14,7 @@ tags: [feature, replay, history, undo, animation, frontend, rest-api]
 
 Implement a video-like replay system that allows users to watch the board's drawing history animated chronologically. The replay skips periods of inactivity (configurable threshold), animates individual strokes point-by-point using stored temporal metadata, and provides VCR-style playback controls.
 
-Because replay is the sole consumer of the append-only event log, this plan also **introduces** that foundation (relocated out of the MVP, which persists only the live `Board.ActiveStrokes` snapshot): the `StrokeEvent` document, `StrokeEventService`, the `StrokeEvents` collection + indexes, and the layering of event-append onto the core hub `SendStroke`. See [feature-collaborative-whiteboard-1.md](./feature-collaborative-whiteboard-1.md) for the MVP that this builds upon.
+Because replay is the sole consumer of the append-only event log, this plan also **introduces** that foundation (relocated out of the MVP, which persists only the live `Board.ActiveStrokes` snapshot): the `StrokeEvent` document, `StrokeEventService`, the `StrokeEvents` **native time-series collection**, and the layering of event-append onto the core hub `SendStroke`. See [feature-collaborative-whiteboard-1.md](./feature-collaborative-whiteboard-1.md) for the MVP that this builds upon.
 
 This plan also **owns undo** (single-step removal of the caller's last stroke). Undo is the producer of `Remove` `StrokeEvent`s, so it belongs with the event log it depends on: it queries the log for the caller's most recent stroke, removes it from the live snapshot, records a `Remove` event, and broadcasts the removal. Undo (Phase 5) depends only on the Phase 0 event-log foundation and can be implemented immediately after it, independently of the replay UI (Phases 1–4).
 
@@ -27,11 +27,11 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 - **REQ-005**: VCR controls: play, pause, seek (timeline scrubber), stop (exit replay)
 - **REQ-006**: This plan serves the **complete unfiltered** stroke history to board members; owner-controlled visibility filtering of replay (HiddenRanges cut-offs) is a separate concern layered on by [feature-history-cutoff-moderation-1.md](./feature-history-cutoff-moderation-1.md)
 - **REQ-007**: Replay data is fetched from a dedicated REST endpoint, paginated for large boards
-- **REQ-008**: This plan introduces the append-only event log: every accepted stroke is recorded as an `Add` `StrokeEvent` (with `Timestamp`, monotonically increasing per-board `SequenceNumber`, and the embedded stroke's temporal metadata) so that history can be replayed
+- **REQ-008**: This plan introduces the append-only event log stored in a **native MongoDB time-series collection**: every accepted stroke is recorded as an `Add` `StrokeEvent` keyed on `Timestamp` (the time-series `timeField`) and `BoardName` (the `metaField`), carrying the embedded stroke's temporal metadata. Events are ordered chronologically by `Timestamp` (ties broken by the stable stroke `Id`) — there is no per-board `SequenceNumber`
 - **REQ-009**: A user can undo their own most recently drawn stroke; undo removes it from the live `Board.ActiveStrokes` snapshot, records a `Remove` `StrokeEvent`, and broadcasts the removal so every connected client updates. Undo only affects the caller's own strokes and is a no-op when the caller has no remaining strokes
 - **CON-001**: Frontend is vanilla JavaScript on HTML5 Canvas (no framework)
 - **CON-002**: Backend is ASP.NET Core 10.0 with MongoDB Atlas
-- **CON-003**: `StrokeEvent` documents carry `Timestamp`, `SequenceNumber`, `Stroke.Duration`, and `Stroke.Points[].TimeOffset`; these document and the `Stroke`/`Point` temporal fields are reused from the MVP data model, but the event log document and persistence are introduced by this plan (Phase 0)
+- **CON-003**: `StrokeEvent` documents carry `Timestamp` (the `timeField`), `Type`, `Stroke.Duration`, and `Stroke.Points[].TimeOffset`, and are persisted in a **native time-series collection** (`metaField` = `BoardName`, `granularity` = `seconds`). The `Stroke`/`Point` temporal fields are reused from the MVP data model, but the event-log document and its collection are introduced by this plan (Phase 0)
 - **DEP-001**: `Services/StrokeEventService.cs` — introduced by this plan (Phase 0); provides `GetEventsAsync(boardName)` and filtered event queries
 - **DEP-002**: Depends on `Middleware/UserIdentityMiddleware.cs` for userId resolution on REST requests
 - **DEP-003**: Depends on `Services/BoardService.cs` providing `IsMemberAsync(boardName, userId)` for member-access enforcement on the history endpoint (membership model introduced by [feature-board-administration-1.md](./feature-board-administration-1.md))
@@ -44,12 +44,12 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-030 | Create `Models/StrokeEvent.cs` — append-only event document: `Id` (`ObjectId`), `BoardName` (string), `Type` (enum `EventType { Add, Remove }`), `Stroke` (embedded `Stroke`, reusing the MVP model with its `Duration`/`Points[].TimeOffset` temporal metadata), `Timestamp` (UTC `DateTime` — native BSON date, no timezone/offset), `SequenceNumber` (long, monotonically increasing per board). `Add` events are produced by `SendStroke` (Phase 0); `Remove` events are produced by undo (Phase 5). | | |
+| TASK-030 | Create `Models/StrokeEvent.cs` — append-only event document: `Id` (`ObjectId`), `BoardName` (string — the time-series `metaField`), `Type` (enum `EventType { Add, Remove }`), `Stroke` (embedded `Stroke`, reusing the MVP model with its `Duration`/`Points[].TimeOffset` temporal metadata), `Timestamp` (UTC `DateTime` — the time-series `timeField`, native BSON date). Stored in the `StrokeEvents` native time-series collection (TASK-033). No `SequenceNumber` — ordering is by `Timestamp`, with the embedded stroke's stable `Id` as the tiebreaker. `Add` events are produced by `SendStroke` (Phase 0); `Remove` events are produced by undo (Phase 5). | | |
 | TASK-031 | Add a `StrokeEvents` typed collection accessor to `Services/MongoDbContext.cs` (and `IMongoDbContext`), extending the MVP context which exposes only `Boards` and `Users`. | | |
-| TASK-032 | Create `Services/StrokeEventService.cs` (and `IStrokeEventService`) with: `AppendEventAsync(boardName, EventType type, Stroke stroke)` (assigns the next per-board `SequenceNumber` and `Timestamp`, inserts the document), `GetEventsAsync(boardName)` (all events ordered by `SequenceNumber`), `GetRecentEventsAsync(boardName, count)`, and `GetEventsSinceAsync(boardName, sinceSequenceNumber)`. Register `IStrokeEventService` in DI in `Program.cs`. | | |
-| TASK-033 | Create MongoDB indexes for `StrokeEvents`: a unique compound index `{ BoardName: 1, SequenceNumber: 1 }` and a query index `{ BoardName: 1, Timestamp: 1 }` (these were noted as deferred in the MVP TASK-022). | | |
+| TASK-032 | Create `Services/StrokeEventService.cs` (and `IStrokeEventService`) with: `AppendEventAsync(boardName, EventType type, Stroke stroke)` (stamps the server `Timestamp` and inserts the measurement), `GetEventsAsync(boardName)` (all events ordered by `Timestamp`, then stroke `Id`), `GetRecentEventsAsync(boardName, count)`, and `GetEventsSinceAsync(boardName, sinceTimestamp)` (incremental cursor; callers de-duplicate by stroke `Id` at the boundary since timestamps can tie). Register `IStrokeEventService` in DI in `Program.cs`. | | |
+| TASK-033 | Create the `StrokeEvents` collection as a **native MongoDB time-series collection**: `db.createCollection("StrokeEvents", { timeseries: { timeField: "Timestamp", metaField: "BoardName", granularity: "seconds" } })`. This auto-provisions the internal clustered `{ metaField, timeField }` index that serves per-board chronological reads. Add a secondary index on the embedded stroke `Id` to support undo's last-stroke lookup and read-side de-duplication. Note: time-series collections **do not support unique indexes**, so per-board ordering relies on the `timeField` rather than a DB-enforced unique sequence. | | |
 | TASK-034 | Layer append-only persistence onto the core hub `SendStroke` (MVP TASK-026): after the stroke is added to the board's `ActiveStrokes` snapshot and broadcast, call `StrokeEventService.AppendEventAsync(boardName, EventType.Add, stroke)`. This is the only producer of events in scope. | | |
-| TASK-035 | Add MSTest integration tests for the event log in `Tests/StrokeEventServiceTests.cs` (relocated from the MVP): verify `AppendEventAsync` assigns incrementing per-board sequence numbers and that `GetEventsAsync` returns events ordered by `SequenceNumber`. Exercises a MongoDB test database. | | |
+| TASK-035 | Add MSTest integration tests for the event log in `Tests/StrokeEventServiceTests.cs` (relocated from the MVP): verify `AppendEventAsync` stamps a server `Timestamp` and that `GetEventsAsync` returns events in chronological (`Timestamp`) order. Exercises a MongoDB test database. | | |
 
 ### Implementation Phase 1
 
@@ -59,8 +59,8 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 |------|-------------|-----------|------|
 | TASK-001 | Add REST endpoint `GET /api/boards/{name}/history` in `Program.cs` with query parameters: `userId` (string, resolved from cookie), `page` (int, default 1), `pageSize` (int, default 100, max 500). Route: `app.MapGet("/api/boards/{name}/history", ...)` | | |
 | TASK-002 | Implement endpoint handler: resolve userId from `HttpContext.Items["UserId"]`, verify membership via `BoardService.IsMemberAsync`, return 403 if unauthorized. Fetch the board. | | |
-| TASK-003 | Return all StrokeEvents for the board ordered by SequenceNumber, paginated. Note: owner-controlled HiddenRanges filtering for non-owner members is layered onto this handler by [feature-history-cutoff-moderation-1.md](./feature-history-cutoff-moderation-1.md); on its own this plan serves the unfiltered history to any member. | | |
-| TASK-004 | Return JSON response: `{ "events": [...], "page": 1, "pageSize": 100, "totalEvents": N, "totalPages": M }`. Each event includes: `id`, `type` (Add/Remove), `stroke` (with points, color, width, duration), `timestamp`, `sequenceNumber`. | | |
+| TASK-003 | Return all StrokeEvents for the board ordered by Timestamp, paginated. Note: owner-controlled HiddenRanges filtering for non-owner members is layered onto this handler by [feature-history-cutoff-moderation-1.md](./feature-history-cutoff-moderation-1.md); on its own this plan serves the unfiltered history to any member. | | |
+| TASK-004 | Return JSON response: `{ "events": [...], "page": 1, "pageSize": 100, "totalEvents": N, "totalPages": M }`. Each event includes: `id`, `type` (Add/Remove), `stroke` (with id, points, color, width, duration), `timestamp`. | | |
 | TASK-005 | Add integration test `Tests/ReplayHistoryEndpointTests.cs`: verify pagination metadata and verify 403 for non-members. (HiddenRanges filtering tests live in [feature-history-cutoff-moderation-1.md](./feature-history-cutoff-moderation-1.md).) | | |
 
 ### Implementation Phase 2
@@ -70,7 +70,7 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
 | TASK-006 | Create `wwwroot/js/replay.js` — export `ReplayEngine` class with constructor accepting a canvas 2D context reference and configuration `{ gapThresholdMs: 3000, speed: 1 }`. | | |
-| TASK-007 | Implement `ReplayEngine.loadHistory(boardName)` — fetch all pages from `GET /api/boards/{boardName}/history` (auto-paginate until all pages consumed), store events in `this.events` array sorted by `sequenceNumber`. | | |
+| TASK-007 | Implement `ReplayEngine.loadHistory(boardName)` — fetch all pages from `GET /api/boards/{boardName}/history` (auto-paginate until all pages consumed), store events in `this.events` array sorted by `timestamp` (ties broken by stroke `id`). | | |
 | TASK-008 | Implement `ReplayEngine.computeTimeline()` — precompute a timeline array: for each event, calculate `realTimeGapMs` (time since previous event's timestamp). If `realTimeGapMs > gapThresholdMs`, compress to `gapThresholdMs`. Store `playbackOffsetMs` (cumulative adjusted time) for each event. Compute `totalDurationMs` for the entire replay. | | |
 | TASK-009 | Implement `ReplayEngine.play()` — start a `requestAnimationFrame` loop. Track `elapsedMs` using `performance.now()` scaled by `this.speed`. For each frame, determine which events should have started based on `elapsedMs` vs `playbackOffsetMs`. For active strokes, animate points using `Point.TimeOffset` scaled by speed. | | |
 | TASK-010 | Implement intra-stroke animation: when rendering a stroke in progress, draw points incrementally — only points where `(elapsedMs - strokeStartMs) * speed >= point.TimeOffset` are rendered. Use `ctx.beginPath()` / `ctx.lineTo()` for smooth progressive drawing. | | |
@@ -129,12 +129,12 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 
 ## 4. Dependencies
 
-- **DEP-001**: `Services/StrokeEventService.cs` — introduced by this plan (Phase 0); provides `GetEventsAsync(boardName)` returning all events ordered by SequenceNumber
+- **DEP-001**: `Services/StrokeEventService.cs` — introduced by this plan (Phase 0); provides `GetEventsAsync(boardName)` returning all events ordered by Timestamp
 - **DEP-002**: `Services/BoardService.cs` — provides `IsMemberAsync(boardName, userId)` for member-access enforcement on the history endpoint (membership model per [feature-board-administration-1.md](./feature-board-administration-1.md))
 - **DEP-003**: `Middleware/UserIdentityMiddleware.cs` — resolves userId from HttpOnly cookie on REST requests
-- **DEP-004**: `Models/StrokeEvent.cs` — introduced by this plan (Phase 0); document with `Type`, `Stroke` (containing `Points[].TimeOffset`, `Duration`), `Timestamp`, `SequenceNumber`
+- **DEP-004**: `Models/StrokeEvent.cs` — introduced by this plan (Phase 0); time-series document with `Type`, `Stroke` (containing `Points[].TimeOffset`, `Duration`), and `Timestamp` (the `timeField`)
 - **DEP-005**: `Models/Point.cs` — must include `TimeOffset` (long, milliseconds since stroke start)
-- **DEP-006**: `Models/Stroke.cs` — must carry a stable stroke `Id` so undo can target and broadcast a specific stroke (`StrokeRemoved(strokeId)`)
+- **DEP-006**: `Models/Stroke.cs` — must carry a stable stroke `Id`: undo targets and broadcasts a specific stroke (`StrokeRemoved(strokeId)`), the event log uses it as the tiebreaker when two events share a `Timestamp`, and it is the natural idempotency / de-duplication key for events
 
 ## 5. Files
 
@@ -143,7 +143,7 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 - **FILE-003**: `wwwroot/index.html` — Add replay button + replay overlay HTML (scrubber, controls, time display) and the undo button (Phase 5)
 - **FILE-004**: `wwwroot/css/style.css` — Add replay overlay styles (positioned over canvas, control bar at bottom)
 - **FILE-005**: `Tests/ReplayHistoryEndpointTests.cs` — Integration tests for the history REST endpoint
-- **FILE-006**: `Models/StrokeEvent.cs` — Append-only event log document introduced by this plan (Phase 0); `Type` (Add/Remove), embedded `Stroke`, `Timestamp`, per-board `SequenceNumber`
+- **FILE-006**: `Models/StrokeEvent.cs` — Append-only event log document introduced by this plan (Phase 0); `Type` (Add/Remove), embedded `Stroke`, `Timestamp` (the `timeField`); stored in a native time-series collection keyed by `BoardName` (the `metaField`)
 - **FILE-007**: `Services/StrokeEventService.cs` (+ `IStrokeEventService`) — Event append and query operations (Phase 0); plus `GetLastAddByUserAsync` for undo (Phase 5); registered in DI in `Program.cs`
 - **FILE-008**: `Services/MongoDbContext.cs` — Add the `StrokeEvents` collection accessor (extends the MVP context) and the `StrokeEvents` indexes (Phase 0)
 - **FILE-009**: `Hubs/WhiteboardHub.cs` (+ `Hubs/IWhiteboardClient.cs`) — Layer `AppendEventAsync(..., EventType.Add, ...)` onto the core `SendStroke` (Phase 0); add the `UndoLastStroke` method and the `StrokeRemoved` client event (Phase 5)
@@ -160,7 +160,7 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 - **TEST-005**: Unit test — `computeTimeline()` with events [t=0s, t=1s, t=15s, t=16s] compresses the 14s gap to 3s, resulting in totalDuration = 0 + 1 + 3 + 1 = 5s of playback
 - **TEST-006**: Unit test — `seek(0.5)` on a timeline with 4 strokes renders exactly the first 2 strokes completely
 - **TEST-007**: Manual test — Full replay with gap compression behaves as described in Phase 4 TASK-026–028
-- **TEST-008**: Integration test — `StrokeEventService.AppendEventAsync` assigns incrementing per-board sequence numbers and `GetEventsAsync` returns events ordered by `SequenceNumber` (Phase 0 event log)
+- **TEST-008**: Integration test — `StrokeEventService.AppendEventAsync` stamps a server `Timestamp` and `GetEventsAsync` returns events in chronological order (Phase 0 event log)
 - **TEST-009**: Integration test — `UndoLastStroke` removes only the caller's most recent stroke from the snapshot, appends a `Remove` event, and broadcasts `StrokeRemoved(strokeId)`; repeated undo removes strokes in reverse draw order
 - **TEST-010**: Integration test — Undo by a caller with no strokes is a no-op, and a caller's undo never removes another user's stroke
 
@@ -172,6 +172,7 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 - **ASSUMPTION-001**: The `Stroke`/`Point` temporal fields (`Timestamp`, `Points[].TimeOffset`) are populated by the MVP whiteboard implementation; this plan's Phase 0 records them into `StrokeEvent` documents
 - **ASSUMPTION-002**: Canvas 2D context can be cleared and re-rendered fast enough for seek operations (target: <100ms for 1000 strokes)
 - **ASSUMPTION-003**: Replay is read-only — drawing tools are disabled during playback and re-enabled on stop
+- **ASSUMPTION-004**: Native time-series collections cannot enforce unique indexes, so event insertion is at-least-once: exactly-once is approximated by de-duplicating on the stable stroke `Id` at read time (and on the `GetEventsSinceAsync` boundary). For throwaway demo data this read-side dedup is sufficient; no DB-level uniqueness constraint is required
 
 ## 8. Related Specifications / Further Reading
 
