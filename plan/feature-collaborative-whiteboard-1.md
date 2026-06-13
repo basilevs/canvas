@@ -19,12 +19,10 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 - **REQ-001**: Users can draw freehand strokes on an HTML5 Canvas element in a web browser
 - **REQ-002**: Multiple users can collaborate on the same whiteboard simultaneously with live cursor/stroke visibility
 - **REQ-003**: All drawing operations are persisted to MongoDB with timestamps and user identity
-- **REQ-004**: History and snapshot are served via separate endpoints; both are filtered by the owner's visibility settings (HiddenRanges) for non-owner members. Only the owner can access the unfiltered view.
+- **REQ-004**: History and current-state snapshot are served via separate endpoints (snapshot for editing, history for replay/undo). Note: owner visibility filtering of these endpoints is layered on by [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md) and is not part of the MVP.
 - **REQ-005**: Users can create and join named whiteboard sessions via URL
 - **REQ-006**: The whiteboard state is reconstructed from snapshot on page load (late joiners see current state)
 - **REQ-007**: The first user to access a board becomes its owner; ownership is permanent
-- **REQ-008**: Board administration (single-use invite links, member-invite delegation, public/private visibility toggle, member removal) is specified in [feature-board-administration-1.md](./feature-board-administration-1.md)
-- **REQ-012**: Visibility moderation (owner hide/restore of member contributions and personal "show hidden" view) is specified in [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md)
 - **REQ-015**: Users can choose a pseudonym (display name) shown to other members on the board; stored per-user globally and editable at any time
 - **REQ-016**: Board owner can override (force) the visible pseudonym of any member on their board; the forced name is what all other members see regardless of the user's self-chosen name
 - **SEC-001**: User identity is bound to the browser instance via a server-issued session token (HttpOnly cookie or SignalR connection token), automatically established on first access — no login or name entry required

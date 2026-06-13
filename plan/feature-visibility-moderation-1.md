@@ -14,6 +14,8 @@ tags: [feature, moderation, access-control, signalr, mongodb]
 
 Implement a moderation capability that lets a board owner hide all contributions of any member up to a chosen cut-off moment, restore them later, and optionally view the full unfiltered history themselves. Hidden strokes remain in storage but become invisible to all non-owner members. Filtering is applied at serve-time based on the caller's identity; the stored snapshot and event log are never mutated by a hide operation.
 
+> **Scope: post-MVP enhancement.** This feature is intentionally excluded from the MVP ([feature-collaborative-whiteboard-1.md](./feature-collaborative-whiteboard-1.md)). In the MVP, the snapshot and history endpoints serve all strokes unfiltered; this plan adds owner-controlled visibility filtering on top.
+
 ## 1. Requirements & Constraints
 
 - **REQ-001**: Board owner can hide all contributions of any member up to the current moment; hidden strokes become invisible to all other members but remain in storage

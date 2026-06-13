@@ -14,6 +14,8 @@ tags: [feature, access-control, administration, signalr, mongodb]
 
 Implement the board owner's administration capabilities layered on top of the core membership model: generating single-use invite links, delegating invite creation to members, toggling board visibility between public and private, and removing members (with immediate disconnection). These controls govern who may access a board and how new members are admitted. Core ownership establishment (first accessor becomes owner) and the membership primitives (`AddMemberAsync`, `IsMemberAsync`, `GetOrCreateBoardAsync`) are provided by the parent whiteboard plan.
 
+> **Scope: post-MVP enhancement.** This feature is intentionally excluded from the MVP ([feature-collaborative-whiteboard-1.md](./feature-collaborative-whiteboard-1.md)). In the MVP, boards are public (anyone with the URL can join); this plan adds the private/invite-only access model on top.
+
 ## 1. Requirements & Constraints
 
 - **REQ-001**: Board owner can generate single-use invite links; each link is valid for exactly one user to join, then expires
