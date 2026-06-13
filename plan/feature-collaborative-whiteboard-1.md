@@ -31,7 +31,7 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 - **CON-001**: Target framework is .NET 10.0 (already configured in canvas.csproj)
 - **CON-002**: MongoDB Atlas (free tier M0, replica set) is the sole persistence layer — no local MongoDB daemon required
 - **CON-003**: Real-time communication must use ASP.NET Core SignalR (WebSocket transport preferred)
-- **CON-004**: Frontend must be vanilla JavaScript with HTML5 Canvas (no SPA framework required for demo)
+- **CON-004**: Frontend must be vanilla JavaScript with HTML5 Canvas (no SPA framework required for demo); use the classless **Pico.css** framework via CDN for default styling so no design system needs to be authored — only app-specific layout (full-viewport canvas, toolbar overlay) is hand-written CSS
 - **CON-005**: MongoDB connection string must be stored in `dotnet user-secrets` (never committed to git)
 - **GUD-001**: Follow ASP.NET Core minimal API patterns where applicable; the project already uses minimal APIs + built-in OpenAPI (`AddOpenApi`/`MapOpenApi`) — do not introduce controllers or Swashbuckle
 - **GUD-002**: Use MongoDB.Driver official .NET driver (not Entity Framework)
@@ -104,13 +104,13 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-040 | Create `wwwroot/index.html` — page with: board name input (or auto-join via URL path), canvas element (full viewport), color picker, stroke width slider, undo button, display name input (editable), connected users list (showing display names), owner settings panel (hidden for non-owners). Note: invite-token landing UI per [feature-board-administration-1.md](./feature-board-administration-1.md) | | |
-| TASK-041 | Add SignalR JavaScript client via CDN: `<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>` | | |
+| TASK-040 | Create `wwwroot/index.html` — page with: board name input (or auto-join via URL path), canvas element (full viewport), color picker, stroke width slider, undo button, display name input (editable), connected users list (showing display names), owner settings panel (hidden for non-owners). Use semantic, class-light markup (`<nav>`, `<button>`, `<input>`, `<aside>`, `<label>`) so Pico.css styles controls automatically; wrap chrome in `<main class="container">` and set `data-theme`. Note: invite-token landing UI per [feature-board-administration-1.md](./feature-board-administration-1.md) | | |
+| TASK-041 | Add CDN `<link>`/`<script>` tags in `index.html`: Pico.css `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">` and SignalR client `<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>` | | |
 | TASK-042 | Create `wwwroot/js/canvas.js` — Canvas drawing module: capture mousedown/mousemove/mouseup and touch events, collect points into stroke objects with `TimeOffset` (ms since stroke start via `performance.now()`), compute `Duration`, render strokes on canvas using `CanvasRenderingContext2D` path API | | |
 | TASK-043 | Create `wwwroot/js/connection.js` — SignalR connection module: establish connection to `/hub/whiteboard` (identity via cookie, no client-supplied userId), implement `JoinBoard`, handle `LoadSnapshot`/`StrokeReceived`/`StrokeRemoved`/`UserJoined`/`UserLeft`/`UserRenamed` events. Note: administration events `UserRemoved`/`BoardSettingsChanged`/`Kicked`/`AccessDenied`/`InvalidInvite` and `joinBoardWithInvite` per [feature-board-administration-1.md](./feature-board-administration-1.md); visibility moderation events `StrokesHidden`/`StrokesRestored` per [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md) | | |
 | TASK-044 | Create `wwwroot/js/admin.js` — Owner panel module: show/hide based on ownership. Handle `UserRenamed` to update the members list UI. Note: board administration controls (invites, public/private, member removal, forced names) per [feature-board-administration-1.md](./feature-board-administration-1.md); visibility moderation controls (hide/restore, show-hidden) per [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md) | | |
 | TASK-045 | Create `wwwroot/js/app.js` — Application orchestrator: route join method, wire display name input to `SetDisplayName` on blur/enter, manage board state, handle reconnection, `UserRenamed` (update members list). Note: invite-URL detection and `Kicked` handling per [feature-board-administration-1.md](./feature-board-administration-1.md) | | |
-| TASK-046 | Create `wwwroot/css/style.css` — Minimal styling: full-viewport canvas, toolbar overlay, admin panel sidebar, name input, responsive layout | | |
+| TASK-046 | Create `wwwroot/css/style.css` — only app-specific layout that Pico.css does not cover: full-viewport `<canvas>`, the toolbar overlay positioned over the canvas, and the admin/members sidebar placement. Override Pico design tokens (`--pico-*`) instead of restyling components; do not hand-author button/form/typography styles. | | |
 | TASK-047 | Implement `LoadSnapshot` handler: on receiving active strokes array + member list with display names, clear canvas and render all strokes immediately, populate members panel | | |
 
 ### Implementation Phase 5
@@ -175,13 +175,13 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 - **FILE-016**: `Services/InviteService.cs` — (Defined in [feature-board-administration-1.md](./feature-board-administration-1.md))
 - **FILE-017**: `Services/StrokeEventService.cs` — Append-only event log persistence and querying
 - **FILE-018**: `Hubs/WhiteboardHub.cs` — SignalR hub for real-time collaboration with access control and name management
-- **FILE-019**: `wwwroot/index.html` — Main whiteboard page with admin panel and name editing
+- **FILE-019**: `wwwroot/index.html` — Main whiteboard page (Pico.css + SignalR via CDN) with admin panel and name editing
 - **FILE-020**: `wwwroot/js/canvas.js` — Canvas drawing engine
 - **FILE-021**: `wwwroot/js/connection.js` — SignalR client wrapper with identity via cookie
 - **FILE-022**: `wwwroot/js/admin.js` — Owner settings panel container (board administration, forced-name, and visibility-moderation controls specified in their respective plans)
 - **FILE-023**: `wwwroot/js/app.js` — Application orchestrator with invite URL detection and name editing
 - **FILE-024**: `plan/feature-replay-history-1.md` — Extracted replay feature plan (history endpoint, animation engine, UI controls)
-- **FILE-025**: `wwwroot/css/style.css` — Stylesheet
+- **FILE-025**: `wwwroot/css/style.css` — App-specific layout only (canvas/overlay/sidebar); Pico.css (CDN) provides the base styling
 - **FILE-026**: `.gitignore` — Exclude bin/, obj/, user-secrets, IDE files
 - **FILE-027**: `README.md` — Project documentation with Atlas setup, invite flow, and name management
 - **FILE-028**: `Tests/WhiteboardHubTests.cs` — Hub integration tests (MSTest)
@@ -228,3 +228,4 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 - [HTML5 Canvas API reference](https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API)
 - [Event Sourcing pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing)
 - [SignalR JavaScript client](https://learn.microsoft.com/en-us/aspnet/core/signalr/javascript-client)
+- [Pico.css documentation](https://picocss.com/docs) — classless CSS framework used for default frontend styling
