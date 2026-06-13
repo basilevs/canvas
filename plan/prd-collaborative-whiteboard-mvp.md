@@ -65,6 +65,7 @@ This document covers the MVP only: anonymous drawing, real-time stroke and curso
 - **Board creation and joining by URL** (Priority: high)
 
   - Visiting a named board URL joins that board, creating it on first visit.
+  - A collaborator with no preferred name can trigger a "start a new board" action that generates a unique, URL-safe board name and takes them to it.
   - All boards are public and joinable by anyone with the URL.
 
 - **Freehand drawing** (Priority: high)
@@ -104,6 +105,7 @@ This document covers the MVP only: anonymous drawing, real-time stroke and curso
 ### 5.1 Entry points & first-time user flow
 
 - A collaborator arrives via a shared board URL (e.g., from a chat message or pasted link).
+- A collaborator with no link or name in mind can instead start a fresh board from the landing page, which generates a board name for them and takes them straight to it.
 - On first access the server silently issues an anonymous identity cookie; no prompt or sign-up appears.
 - The board loads with the current drawing already rendered, and the collaborator can draw right away.
 - An optional display-name field invites them to identify themselves, defaulting to an anonymous label if skipped.
@@ -335,3 +337,15 @@ A collaborator receives a board link in a group chat and clicks it. The whiteboa
   - Strokes and presence are attributed using the server-assigned identity, never a client-supplied one.
   - A client cannot cause its contributions to be attributed to another collaborator's identity.
   - The identity cookie is HttpOnly and is not exposed to client scripts, URLs, or logs.
+
+### 10.12. Create a new board without choosing a name
+
+- **ID**: GH-012
+- **Description**: As an anonymous collaborator who just wants to start drawing and has no particular board name or URL in mind, I want to create a fresh board with a system-generated name so that I can begin immediately and share the resulting link.
+- **Acceptance criteria**:
+
+  - From the landing page, a "start a new board" action creates a board with a system-generated, unique, URL-safe name and navigates the collaborator to that board's URL.
+  - The new board opens ready to draw on, as an empty canvas.
+  - The generated name does not collide with an existing board; each action yields a new, distinct board.
+  - The generated name is sufficiently random to be hard to guess, so the action does not accidentally drop the collaborator into an unrelated existing board.
+  - The resulting URL can be copied and shared so other collaborators join the same board.
