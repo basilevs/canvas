@@ -53,7 +53,7 @@ Implement a moderation capability that lets a board owner hide all contributions
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-008 | Add hub methods to `Hubs/WhiteboardHub.cs`: `HideContributions(boardName, targetUserId)`, `RestoreContributions(boardName, targetUserId)`, `ToggleShowHidden(boardName, showHidden)` — all resolve userId from `Context.GetHttpContext().Items["UserId"]`. | | |
+| TASK-008 | Add hub methods to `Hubs/WhiteboardHub.cs`: `HideContributions(boardName, targetUserId)`, `RestoreContributions(boardName, targetUserId)`, `ToggleShowHidden(boardName, showHidden)` — all resolve userId from `Context.GetHttpContext().Items["UserId"]`. Per the parent plan's strongly typed hub convention (GUD-009), extend `IWhiteboardClient` with the server→client events this plan introduces (`StrokesHidden`, `StrokesRestored`) and broadcast them via the typed proxy (e.g. `Clients.Group(name).StrokesHidden(...)`), never `SendAsync`. | | |
 | TASK-009 | Implement `HideContributions(boardName, targetUserId)`: verify caller is owner (reject otherwise). Call `BoardService.HideContributionsAsync(boardId, targetUserId, DateTime.UtcNow)`. Broadcast `StrokesHidden(targetUserId, hiddenBefore)` to non-owner members. Owner's view unchanged. | | |
 | TASK-010 | Implement `RestoreContributions(boardName, targetUserId)`: verify caller is owner. Call `BoardService.RestoreContributionsAsync(boardId, targetUserId)`. Broadcast `StrokesRestored(targetUserId, restoredStrokes[])` to non-owner members. | | |
 | TASK-011 | Implement `ToggleShowHidden(boardName, showHidden)`: verify caller is owner. If showHidden=true, send full unfiltered snapshot to caller only (via `GetFullSnapshotAsync`). If false, send filtered snapshot. Personal view toggle — no broadcast. | | |
@@ -102,7 +102,7 @@ Implement a moderation capability that lets a board owner hide all contributions
 - **FILE-001**: `Models/HiddenRange.cs` — Value object defining per-user visibility cut-off (UserId + HiddenBefore timestamp)
 - **FILE-002**: `Models/Board.cs` — Add `HiddenRanges` collection property
 - **FILE-003**: `Services/BoardService.cs` — Add `HideContributionsAsync`, `RestoreContributionsAsync`, `GetHiddenRangesAsync`, and filtered/full snapshot accessors
-- **FILE-004**: `Hubs/WhiteboardHub.cs` — Add `HideContributions`, `RestoreContributions`, `ToggleShowHidden` methods
+- **FILE-004**: `Hubs/WhiteboardHub.cs` (+ `Hubs/IWhiteboardClient.cs`) — Add `HideContributions`, `RestoreContributions`, `ToggleShowHidden` methods; extend `IWhiteboardClient` with this plan's client events (GUD-009)
 - **FILE-005**: `wwwroot/js/admin.js` — Hide/restore buttons and "show hidden" checkbox
 - **FILE-006**: `wwwroot/js/connection.js` — Register `StrokesHidden`/`StrokesRestored` handlers
 - **FILE-007**: `wwwroot/js/app.js` — Apply hide/restore to the local canvas

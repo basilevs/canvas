@@ -56,7 +56,7 @@ Implement the board owner's administration capabilities, including the underlyin
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-005 | Add hub methods to `Hubs/WhiteboardHub.cs`: `JoinBoardWithInvite(token)`, `CreateInvite(boardName)`, `SetPublic(boardName, isPublic)`, `SetMembersCanInvite(boardName, canInvite)`, `RemoveMember(boardName, targetUserId)` — all resolve userId from `Context.GetHttpContext().Items["UserId"]`. | | |
+| TASK-005 | Add hub methods to `Hubs/WhiteboardHub.cs`: `JoinBoardWithInvite(token)`, `CreateInvite(boardName)`, `SetPublic(boardName, isPublic)`, `SetMembersCanInvite(boardName, canInvite)`, `RemoveMember(boardName, targetUserId)` — all resolve userId from `Context.GetHttpContext().Items["UserId"]`. Per the parent plan's strongly typed hub convention (GUD-009), extend `IWhiteboardClient` with the server→client events this plan introduces (`BoardSettingsChanged`, `UserRemoved`, `Kicked`, `AccessDenied`, `InvalidInvite`) and broadcast them via the typed proxy (e.g. `Clients.Group(name).BoardSettingsChanged(...)`), never `SendAsync`. | | |
 | TASK-006 | Implement `JoinBoardWithInvite(token)`: call `InviteService.RedeemInviteAsync(token, userId)` — if successful, add user as member (`AddMemberAsync`), join the SignalR group, send snapshot + member list. If token invalid/used, return `InvalidInvite` error. | | |
 | TASK-007 | Implement `CreateInvite(boardName)`: verify caller is owner OR (`MembersCanInvite` is true AND caller is member). Call `InviteService.CreateInviteAsync`, return invite URL to caller. | | |
 | TASK-008 | Implement `SetPublic(boardName, isPublic)`: verify caller is owner, call `BoardService.SetPublicAsync`. Broadcast `BoardSettingsChanged` to group. | | |
@@ -132,7 +132,7 @@ Implement the board owner's administration capabilities, including the underlyin
 - **FILE-003**: `Services/BoardService.cs` — Add owner establishment + membership primitives (`AddMemberAsync`, `IsMemberAsync`, `GetMembersWithNamesAsync`, owner in `GetOrCreateBoardAsync`) and `SetPublicAsync`, `SetMembersCanInviteAsync`, `RemoveMemberAsync`, `SetForcedNameAsync`, `ClearForcedNameAsync`
 - **FILE-004**: `Models/BoardMember.cs` — Create the embedded member value object (`UserId`; `ForcedName` owner-assigned pseudonym override)
 - **FILE-016**: `Models/Board.cs` — Add ownership/membership fields (`OwnerId`, `IsPublic`, `MembersCanInvite`, `Members`) to the MVP model
-- **FILE-005**: `Hubs/WhiteboardHub.cs` — Update core `JoinBoard` to add the caller as a member; add `JoinBoardWithInvite`, `CreateInvite`, `SetPublic`, `SetMembersCanInvite`, `RemoveMember`, `SetForcedName`, `ClearForcedName`, connection tracking, and member-access guards on the core `SendStroke`/`UndoLastStroke` methods
+- **FILE-005**: `Hubs/WhiteboardHub.cs` (+ `Hubs/IWhiteboardClient.cs`) — Update core `JoinBoard` to add the caller as a member; add `JoinBoardWithInvite`, `CreateInvite`, `SetPublic`, `SetMembersCanInvite`, `RemoveMember`, `SetForcedName`, `ClearForcedName`, connection tracking, and member-access guards on the core `SendStroke`/`UndoLastStroke` methods; extend `IWhiteboardClient` with this plan's client events (GUD-009)
 - **FILE-006**: `wwwroot/js/admin.js` — Owner settings panel (invites, public/private, member removal, forced names)
 - **FILE-007**: `wwwroot/js/connection.js` — Register `BoardSettingsChanged`/`UserRemoved`/`Kicked`/`AccessDenied`/`InvalidInvite` handlers
 - **FILE-008**: `wwwroot/js/app.js` — Invite URL detection and kick handling
