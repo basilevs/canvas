@@ -55,8 +55,8 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 |------|-------------|-----------|------|
 | TASK-001 | Add NuGet packages: `MongoDB.Driver` (latest stable) to `canvas.csproj`. SignalR is included in the framework. | | |
 | TASK-002 | Initialize user-secrets: run `dotnet user-secrets init` then `dotnet user-secrets set "MongoDB:ConnectionString" "mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/?retryWrites=true&w=majority"`. Add `"MongoDB": { "DatabaseName": "canvas" }` to `appsettings.json` (no secrets in this file). | | |
-| TASK-003 | Create `Services/MongoDbContext.cs` — singleton service that reads `MongoDB:ConnectionString` from configuration (user-secrets in dev), exposes `IMongoDatabase` and typed collection accessors for `Boards` and `StrokeEvents` | | |
-| TASK-004 | Register MongoDB services in `Program.cs` using `builder.Services.AddSingleton<MongoDbContext>()` | | |
+| TASK-003 | Create `Services/MongoDbContext.cs` (and `IMongoDbContext` interface) — singleton service that reads `MongoDB:ConnectionString` from configuration (user-secrets in dev), exposes `IMongoDatabase` and typed collection accessors for `Boards` and `StrokeEvents` | | |
+| TASK-004 | Register services in `Program.cs` via their interfaces: `builder.Services.AddSingleton<IMongoDbContext, MongoDbContext>()`, and likewise `IUserProfileService`/`IBoardService`/`IStrokeEventService` (per GUD-004). Also add `builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()))` so enums serialize as strings (GUD-006). | | |
 | TASK-005 | Add `builder.Services.AddSignalR()` and map hub endpoint `app.MapHub<WhiteboardHub>("/hub/whiteboard")` in `Program.cs` | | |
 | TASK-006 | Create identity middleware in `Middleware/UserIdentityMiddleware.cs`: on each request, check for `X-User-Id` HttpOnly cookie. If absent, generate a new UUID, set it as an HttpOnly/Secure/SameSite=Strict cookie, and attach to `HttpContext.Items["UserId"]`. SignalR hub reads userId from `Context.GetHttpContext().Items["UserId"]` — client never supplies its own identity. | | |
 | TASK-007 | Add rate limiting via `Microsoft.AspNetCore.RateLimiting` (built-in). Configure two policies in `Program.cs`: (1) `"ip-range"` — sliding window limiter keyed by client IP /24 subnet (configurable in appsettings: `RateLimits:IpWindowSeconds`, `RateLimits:IpMaxRequests`); (2) `"user"` — sliding window limiter keyed by userId from cookie (configurable: `RateLimits:UserWindowSeconds`, `RateLimits:UserMaxRequests`). Apply both to hub and API endpoints. | | |
@@ -64,7 +64,8 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 | TASK-009 | Add rate limit configuration section to `appsettings.json`: `"RateLimits": { "IpWindowSeconds": 60, "IpMaxRequests": 200, "UserWindowSeconds": 10, "UserMaxRequests": 30 }` (defaults; tunable without redeployment via config reload). | | |
 | TASK-010 | Register middleware in `Program.cs`: `app.UseRateLimiter()` before `app.UseMiddleware<UserIdentityMiddleware>()`; identity middleware before `UseStaticFiles`. | | |
 | TASK-011 | Add `app.UseStaticFiles()` in `Program.cs` and create `wwwroot/` directory for frontend assets | | |
-| TASK-012 | Remove the default weather forecast endpoint from `Program.cs` | | |
+| TASK-012 | Remove the default weather forecast endpoint (and `WeatherForecast` record) from `Program.cs` | | |
+| TASK-053 | Add global error handling (GUD-007): create `Middleware/ApiExceptionHandler.cs` implementing `IExceptionHandler` that maps domain exceptions to RFC 7807 Problem Details (without leaking exception messages); register `builder.Services.AddExceptionHandler<ApiExceptionHandler>()` + `builder.Services.AddProblemDetails()` and `app.UseExceptionHandler()` in `Program.cs`. | | |
 
 ### Implementation Phase 2
 
@@ -78,9 +79,9 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 | TASK-015 | Create `Models/Stroke.cs` — properties: `Id` (ObjectId), `BoardId` (string), `UserId` (string), `Points` (List<Point>), `Color` (string), `Width` (float), `Timestamp` (DateTimeOffset, server-assigned UTC time when stroke was received), `Duration` (long, milliseconds from first point to last point in the stroke as measured by client), `SequenceNumber` (long). | | |
 | TASK-016 | Create `Models/StrokeEvent.cs` — properties: `Id` (ObjectId), `BoardId` (string), `Type` (enum: `Add`/`Remove`), `Stroke` (Stroke, the stroke added or removed), `UserId` (string), `Timestamp` (DateTimeOffset), `SequenceNumber` (long). Append-only event log for history replay and undo. | | |
 | TASK-017 | Create `Models/Point.cs` — properties: `X` (double), `Y` (double), `Pressure` (double, optional), `TimeOffset` (long, milliseconds since stroke start — enables point-by-point animated replay within a single stroke) | | |
-| TASK-018 | Create `Services/UserProfileService.cs` — methods: `GetOrCreateProfileAsync(userId)` (creates with default "Anonymous" name on first access), `SetDisplayNameAsync(userId, name)`, `GetDisplayNameAsync(userId)`, `GetDisplayNamesAsync(userIds)` (batch lookup) | | |
-| TASK-019 | Create `Services/BoardService.cs` — methods: `CreateBoardAsync(name, ownerId)`, `GetBoardAsync(id)`, `GetOrCreateBoardAsync(name, userId)` (first caller becomes owner and member), `UpdateLastActivityAsync(boardId)`, `GetSnapshotAsync(boardName, requestingUserId)`, `GetFullSnapshotAsync(boardName)` (unfiltered, owner-only), `AddStrokeToSnapshotAsync(boardId, stroke)`, `RemoveStrokeFromSnapshotAsync(boardId, strokeId)`, `AddMemberAsync(boardId, userId)`, `IsMemberAsync(boardId, userId)`, `GetMembersWithNamesAsync(boardId)` (returns members with their self-chosen `UserProfile.DisplayName`). Note: administration methods `SetPublicAsync`/`SetMembersCanInviteAsync`/`RemoveMemberAsync` plus forced-name overrides `SetForcedNameAsync`/`ClearForcedNameAsync` (and the `ForcedName ?? DisplayName` resolution) are in [feature-board-administration-1.md](./feature-board-administration-1.md); HiddenRange-based filtering plus `HideContributionsAsync`/`RestoreContributionsAsync`/`GetHiddenRangesAsync` are in [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md) | | |
-| TASK-021 | Create `Services/StrokeEventService.cs` — methods: `AppendEventAsync(strokeEvent)`, `GetEventsAsync(boardId)` (full history for replay), `GetRecentEventsAsync(boardId, count)` (for undo lookup), `GetEventsSinceAsync(boardId, sequenceNumber)` | | |
+| TASK-018 | Create `Services/UserProfileService.cs` (and `IUserProfileService` interface) — methods (each taking a trailing `CancellationToken`, GUD-005): `GetOrCreateProfileAsync(userId, ct)` (creates with default "Anonymous" name on first access), `SetDisplayNameAsync(userId, name, ct)`, `GetDisplayNameAsync(userId, ct)`, `GetDisplayNamesAsync(userIds, ct)` (batch lookup) | | |
+| TASK-019 | Create `Services/BoardService.cs` (and `IBoardService` interface) — methods (each taking a trailing `CancellationToken`, GUD-005): `CreateBoardAsync(name, ownerId)`, `GetBoardAsync(id)`, `GetOrCreateBoardAsync(name, userId)` (first caller becomes owner and member), `UpdateLastActivityAsync(boardId)`, `GetSnapshotAsync(boardName, requestingUserId)`, `GetFullSnapshotAsync(boardName)` (unfiltered, owner-only), `AddStrokeToSnapshotAsync(boardId, stroke)`, `RemoveStrokeFromSnapshotAsync(boardId, strokeId)`, `AddMemberAsync(boardId, userId)`, `IsMemberAsync(boardId, userId)`, `GetMembersWithNamesAsync(boardId)` (returns members with their self-chosen `UserProfile.DisplayName`). Note: administration methods `SetPublicAsync`/`SetMembersCanInviteAsync`/`RemoveMemberAsync` plus forced-name overrides `SetForcedNameAsync`/`ClearForcedNameAsync` (and the `ForcedName ?? DisplayName` resolution) are in [feature-board-administration-1.md](./feature-board-administration-1.md); HiddenRange-based filtering plus `HideContributionsAsync`/`RestoreContributionsAsync`/`GetHiddenRangesAsync` are in [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md) | | |
+| TASK-021 | Create `Services/StrokeEventService.cs` (and `IStrokeEventService` interface) — methods (each taking a trailing `CancellationToken`, GUD-005): `AppendEventAsync(strokeEvent)`, `GetEventsAsync(boardId)` (full history for replay), `GetRecentEventsAsync(boardId, count)` (for undo lookup), `GetEventsSinceAsync(boardId, sequenceNumber)` | | |
 | TASK-022 | Create MongoDB indexes: compound index on `StrokeEvents` for `{ BoardId: 1, SequenceNumber: 1 }`, index on `{ BoardId: 1, Timestamp: 1 }` (replay), unique index on `Boards` for `{ Name: 1 }`, unique index on `Users` for `{ UserId: 1 }`, and TTL index on `Boards.LastActivityAt` (optional, 30 days). Note: `Invites` collection indexes are specified in [feature-board-administration-1.md](./feature-board-administration-1.md) | | |
 
 ### Implementation Phase 3
@@ -118,9 +119,11 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-036 | Add REST endpoint `GET /api/boards` — returns list of public boards with active stroke counts (requires no auth) | | |
-| TASK-037 | Add REST endpoint `GET /api/boards/{name}/snapshot` — returns the current board snapshot; open access in the MVP, where all boards are public. Note: private-board access enforcement (require userId + membership check, return 403 for non-members) is layered onto this endpoint by [feature-board-administration-1.md](./feature-board-administration-1.md). | | |
-| TASK-048 | Add REST endpoint `DELETE /api/boards/{name}` — owner-only; clears snapshot and all history for a board | | |
+| TASK-054 | Create response DTOs as `sealed record` types in `Dtos/` (GUD-003), each with `<summary>` XML doc comments and `DateTimeOffset` for date/time fields: `BoardSummaryResponse` (name, active stroke count, `LastActivityAt`), `BoardSnapshotResponse` (board name, `IReadOnlyList<StrokeResponse>`), `StrokeResponse` (id, userId, color, width, `IReadOnlyList<PointResponse>`, `Timestamp`), `PointResponse` (x, y, pressure, timeOffset). Map domain models → DTOs in the service/endpoint layer; never serialize `Board`/`Stroke`/`StrokeEvent` directly. | | |
+| TASK-036 | Add minimal-API endpoint `GET /api/boards` — returns `200 OK` with `IReadOnlyList<BoardSummaryResponse>` (list of public boards with active stroke counts; no auth). Accept `CancellationToken`, forward it to the service. Chain `.WithName("ListBoards").WithSummary(...).Produces<IReadOnlyList<BoardSummaryResponse>>(200)`. | | |
+| TASK-037 | Add minimal-API endpoint `GET /api/boards/{name}/snapshot` — returns `200 OK` with `BoardSnapshotResponse`, or `404 Not Found` if the board does not exist; open access in the MVP (all boards public). Accept `CancellationToken`; use `TypedResults` with an explicit `Results<Ok<BoardSnapshotResponse>, NotFound>` return type; chain `.WithName("GetBoardSnapshot").WithSummary(...).Produces<BoardSnapshotResponse>(200).Produces(404)`. Note: private-board access enforcement (require userId + membership check, return `403`) is layered onto this endpoint by [feature-board-administration-1.md](./feature-board-administration-1.md). | | |
+| TASK-048 | Add minimal-API endpoint `DELETE /api/boards/{name}` — owner-only; clears snapshot and all history for a board. Returns `204 No Content` on success, `404 Not Found` if absent. Accept `CancellationToken`; use `TypedResults` with an explicit `Results<NoContent, NotFound>` return type; chain `.WithName("DeleteBoard").WithSummary(...).Produces(204).Produces(404)`. | | |
+| TASK-055 | Add a request for each new endpoint (`GET /api/boards`, `GET /api/boards/{name}/snapshot`, `DELETE /api/boards/{name}`) to `canvas.http`, including an error path (non-existent board → 404), matching the port in `Properties/launchSettings.json` (GUD-006). | | |
 
 ### Implementation Phase 6
 
@@ -130,8 +133,8 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 |------|-------------|-----------|------|
 | TASK-049 | Create `README.md` with: project overview, architecture diagram (text), prerequisites (dotnet 10 SDK, Atlas account), setup instructions (user-secrets configuration), and usage guide | | |
 | TASK-050 | Add `.gitignore` entries to ensure user-secrets and `obj/`/`bin/` are excluded | | |
-| TASK-051 | Add integration test: `Tests/WhiteboardHubTests.cs` — verify JoinBoard returns the snapshot and broadcasts `UserJoined`, SendStroke persists and broadcasts, UndoLastStroke removes the caller's last stroke. (Private-board access-denial tests are in [feature-board-administration-1.md](./feature-board-administration-1.md).) | | |
-| TASK-052 | Add unit test: `Tests/StrokeEventServiceTests.cs` — verify event append and query operations against Atlas (test database) | | |
+| TASK-051 | Add MSTest integration test (GUD-008): `Tests/WhiteboardHubTests.cs` — verify JoinBoard returns the snapshot and broadcasts `UserJoined`, SendStroke persists and broadcasts, UndoLastStroke removes the caller's last stroke. (Private-board access-denial tests are in [feature-board-administration-1.md](./feature-board-administration-1.md).) | | |
+| TASK-052 | Add MSTest integration test (GUD-008): `Tests/StrokeEventServiceTests.cs` — verify event append and query operations against MongoDB Atlas (test database). This exercises a real database, so it is an integration test, not a unit test. | | |
 
 ## 3. Alternatives
 
@@ -154,7 +157,10 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 - **FILE-002**: `canvas.csproj` — Add MongoDB.Driver package reference
 - **FILE-003**: `appsettings.json` — Add MongoDB database name and rate limit configuration (no secrets)
 - **FILE-004**: `Middleware/UserIdentityMiddleware.cs` — Assigns and validates server-side user identity via HttpOnly cookie
-- **FILE-005**: `Middleware/RateLimitKeyProviders.cs` — IP subnet and user-based rate limit key extraction helpers
+- **FILE-036**: `Middleware/RateLimitKeyProviders.cs` — IP subnet and user-based rate limit key extraction helpers
+- **FILE-033**: `Middleware/ApiExceptionHandler.cs` — Global `IExceptionHandler` mapping exceptions to RFC 7807 Problem Details
+- **FILE-034**: `Dtos/` — `sealed record` response DTOs (`BoardSummaryResponse`, `BoardSnapshotResponse`, `StrokeResponse`, `PointResponse`) with XML doc comments and `DateTimeOffset` date/time fields
+- **FILE-035**: `canvas.http` — Add requests for the board management REST endpoints (list, snapshot, delete), including a 404 error path
 - **FILE-005**: `Models/Board.cs` — Board document model with ownership, membership (`BoardMember`), embedded `ActiveStrokes` snapshot (`BoardMember.ForcedName` added by the board administration plan; `HiddenRanges` added by the visibility moderation plan)
 - **FILE-006**: `Models/BoardMember.cs` — Embedded member value object (UserId; optional `ForcedName` override added by the board administration plan)
 - **FILE-007**: `Models/UserProfile.cs` — User document with self-chosen DisplayName (global, stored in Users collection)
@@ -178,11 +184,11 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 - **FILE-025**: `wwwroot/css/style.css` — Stylesheet
 - **FILE-026**: `.gitignore` — Exclude bin/, obj/, user-secrets, IDE files
 - **FILE-027**: `README.md` — Project documentation with Atlas setup, invite flow, and name management
-- **FILE-028**: `Tests/WhiteboardHubTests.cs` — Hub integration tests
+- **FILE-028**: `Tests/WhiteboardHubTests.cs` — Hub integration tests (MSTest)
 - **FILE-029**: `Tests/InviteFlowTests.cs` — (Specified in [feature-board-administration-1.md](./feature-board-administration-1.md))
 - **FILE-030**: `Tests/MemberRemovalTests.cs` — (Specified in [feature-board-administration-1.md](./feature-board-administration-1.md))
-- **FILE-031**: `Tests/DisplayNameTests.cs` — Pseudonym (self-chosen display name) integration tests
-- **FILE-032**: `Tests/StrokeEventServiceTests.cs` — Event service unit tests
+- **FILE-031**: `Tests/DisplayNameTests.cs` — Pseudonym (self-chosen display name) integration tests (MSTest)
+- **FILE-032**: `Tests/StrokeEventServiceTests.cs` — Event service integration tests (MSTest; exercises a test database)
 
 ## 6. Testing
 
@@ -190,9 +196,9 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 - **TEST-002**: Integration test — Sending a stroke adds it to the board snapshot AND appends an Add event to the event log
 - **TEST-003**: Integration test — Undo removes only the current user's last stroke from snapshot, appends Remove event, and broadcasts removal to group
 - **TEST-004**: Board administration tests (invites, public/private access, member removal, owner-only enforcement) are specified in [feature-board-administration-1.md](./feature-board-administration-1.md)
-- **TEST-009**: Unit test — StrokeEventService.AppendEventAsync assigns incrementing sequence numbers per board
-- **TEST-010**: Unit test — StrokeEventService.GetEventsAsync returns events ordered by SequenceNumber ascending
-- **TEST-011**: Unit test — BoardService.GetSnapshotAsync returns only active strokes (excludes undone strokes)
+- **TEST-009**: Integration test (MSTest) — StrokeEventService.AppendEventAsync assigns incrementing sequence numbers per board (exercises the database)
+- **TEST-010**: Integration test (MSTest) — StrokeEventService.GetEventsAsync returns events ordered by SequenceNumber ascending (exercises the database)
+- **TEST-011**: Unit test (MSTest) — BoardService snapshot logic returns only active strokes (excludes undone strokes)
 - **TEST-012**: Visibility moderation tests (hide/restore/show-hidden) are specified in [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md)
 - **TEST-016**: Manual test — Open two browser tabs on the same board URL, draw in one, verify stroke appears in the other within 100ms
 - **TEST-017**: Manual test — Refresh page after drawing; verify all active strokes load instantly from snapshot
