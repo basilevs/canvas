@@ -166,9 +166,9 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 
 ## 7. Risks & Assumptions
 
-- **RISK-001**: Very large boards (10,000+ events) may cause slow initial fetch — mitigated by pagination and potential future streaming/chunked loading
+- **RISK-001**: Very large boards (10,000+ events) may cause slow initial fetch — mitigated by pagination and potential future streaming/chunked loading (the keyframe + lazy-history approach is specified in [feature-history-compaction-1.md](./feature-history-compaction-1.md))
 - **RISK-002**: `requestAnimationFrame` timing inconsistencies across browsers may cause slight playback drift — mitigated by using `performance.now()` for elapsed time rather than frame counting
-- **RISK-003**: Seek to arbitrary position requires re-rendering all prior strokes (O(n) for n events before seek point) — acceptable for demo scale; could be optimized with periodic snapshots for very large boards
+- **RISK-003**: Seek to arbitrary position requires re-rendering all prior strokes (O(n) for n events before seek point) — acceptable for demo scale; could be optimized with periodic snapshots for very large boards (the keyframe/segment approach is specified in [feature-history-compaction-1.md](./feature-history-compaction-1.md))
 - **ASSUMPTION-001**: The `Stroke`/`Point` temporal fields (`Timestamp`, `Points[].TimeOffset`) are populated by the MVP whiteboard implementation; this plan's Phase 0 records them into `StrokeEvent` documents
 - **ASSUMPTION-002**: Canvas 2D context can be cleared and re-rendered fast enough for seek operations (target: <100ms for 1000 strokes)
 - **ASSUMPTION-003**: Replay is read-only — drawing tools are disabled during playback and re-enabled on stop
@@ -179,6 +179,7 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 - [Main whiteboard implementation plan](./feature-collaborative-whiteboard-1.md) — parent plan containing data model, SignalR hub, and persistence layer
 - [History cut-off moderation feature plan](./feature-history-cutoff-moderation-1.md) — layers owner-controlled HiddenRanges filtering onto the history endpoint defined here
 - [Visibility moderation feature plan](./feature-visibility-moderation-1.md) — the live-snapshot counterpart of cut-off moderation; defines the HiddenRange model reused for history filtering
+- [History compaction feature plan](./feature-history-compaction-1.md) — keeps large-history boards fast to load via derived keyframes over the event log this plan introduces, while retaining full history for on-demand replay
 - [requestAnimationFrame documentation](https://developer.mozilla.org/en-US/docs/Web/API/window/requestAnimationFrame)
 - [Canvas 2D API — Path2D and drawing](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D)
 - [performance.now() for high-resolution timing](https://developer.mozilla.org/en-US/docs/Web/API/Performance/now)
