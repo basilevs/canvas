@@ -23,10 +23,7 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 - **REQ-005**: Users can create and join named whiteboard sessions via URL
 - **REQ-006**: The whiteboard state is reconstructed from snapshot on page load (late joiners see current state)
 - **REQ-007**: The first user to access a board becomes its owner; ownership is permanent
-- **REQ-008**: Board owner can generate single-use invite links; each link is valid for exactly one user to join, then expires
-- **REQ-009**: Board owner can enable or disable the ability for other members to create invite links (default: disabled)
-- **REQ-010**: Board owner can toggle board visibility between public (anyone with the URL can join) and private (invite-only) at any time
-- **REQ-011**: Board owner can remove existing members from the board; removed members lose access immediately and their active connections are disconnected
+- **REQ-008**: Board administration (single-use invite links, member-invite delegation, public/private visibility toggle, member removal) is specified in [feature-board-administration-1.md](./feature-board-administration-1.md)
 - **REQ-012**: Visibility moderation (owner hide/restore of member contributions and personal "show hidden" view) is specified in [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md)
 - **REQ-015**: Users can choose a pseudonym (display name) shown to other members on the board; stored per-user globally and editable at any time
 - **REQ-016**: Board owner can override (force) the visible pseudonym of any member on their board; the forced name is what all other members see regardless of the user's self-chosen name
@@ -76,15 +73,15 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 | TASK-011 | Create `Models/BoardMember.cs` — properties: `UserId` (string), `ForcedName` (string?, owner-assigned pseudonym override; if set, displayed instead of user's self-chosen name). Embedded in Board.Members. | | |
 | TASK-012 | Create `Models/UserProfile.cs` — properties: `Id` (ObjectId), `UserId` (string, unique, server-assigned UUID), `DisplayName` (string, user-chosen pseudonym, default "Anonymous"), `CreatedAt` (DateTime). Stored in a `Users` collection. | | |
 | TASK-013 | (Moved to [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md)) — `Models/HiddenRange.cs` and HiddenRange-based snapshot filtering are specified in the visibility moderation plan | | |
-| TASK-014 | Create `Models/Invite.cs` — properties: `Id` (ObjectId), `BoardId` (string), `Token` (string, unique random URL-safe token), `CreatedBy` (string, UUID), `CreatedAt` (DateTime), `UsedBy` (string?, UUID of user who redeemed), `UsedAt` (DateTime?), `IsUsed` (bool, default false). Single-use: once redeemed, cannot be used again. | | |
+| TASK-014 | (Moved to [feature-board-administration-1.md](./feature-board-administration-1.md)) — `Models/Invite.cs` single-use invite token document is specified in the board administration plan | | |
 | TASK-015 | Create `Models/Stroke.cs` — properties: `Id` (ObjectId), `BoardId` (string), `UserId` (string), `Points` (List<Point>), `Color` (string), `Width` (float), `Timestamp` (DateTime, server-assigned UTC time when stroke was received), `Duration` (long, milliseconds from first point to last point in the stroke as measured by client), `SequenceNumber` (long). | | |
 | TASK-016 | Create `Models/StrokeEvent.cs` — properties: `Id` (ObjectId), `BoardId` (string), `Type` (enum: `Add`/`Remove`), `Stroke` (Stroke, the stroke added or removed), `UserId` (string), `Timestamp` (DateTime), `SequenceNumber` (long). Append-only event log for history replay and undo. | | |
 | TASK-017 | Create `Models/Point.cs` — properties: `X` (double), `Y` (double), `Pressure` (double, optional), `TimeOffset` (long, milliseconds since stroke start — enables point-by-point animated replay within a single stroke) | | |
 | TASK-018 | Create `Services/UserProfileService.cs` — methods: `GetOrCreateProfileAsync(userId)` (creates with default "Anonymous" name on first access), `SetDisplayNameAsync(userId, name)`, `GetDisplayNameAsync(userId)`, `GetDisplayNamesAsync(userIds)` (batch lookup) | | |
-| TASK-019 | Create `Services/BoardService.cs` — methods: `CreateBoardAsync(name, ownerId)`, `GetBoardAsync(id)`, `GetOrCreateBoardAsync(name, userId)` (first caller becomes owner and member), `UpdateLastActivityAsync(boardId)`, `GetSnapshotAsync(boardName, requestingUserId)`, `GetFullSnapshotAsync(boardName)` (unfiltered, owner-only), `AddStrokeToSnapshotAsync(boardId, stroke)`, `RemoveStrokeFromSnapshotAsync(boardId, strokeId)`, `SetPublicAsync(boardId, isPublic)`, `SetMembersCanInviteAsync(boardId, canInvite)`, `AddMemberAsync(boardId, userId)`, `RemoveMemberAsync(boardId, userId)`, `IsMemberAsync(boardId, userId)`, `SetForcedNameAsync(boardId, targetUserId, forcedName)` (owner sets override), `ClearForcedNameAsync(boardId, targetUserId)` (owner removes override), `GetMembersWithNamesAsync(boardId)` (returns members with resolved display names: ForcedName ?? UserProfile.DisplayName). Note: HiddenRange-based filtering in `GetSnapshotAsync`/`GetFullSnapshotAsync` plus `HideContributionsAsync`/`RestoreContributionsAsync`/`GetHiddenRangesAsync` are specified in [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md) | | |
-| TASK-020 | Create `Services/InviteService.cs` — methods: `CreateInviteAsync(boardId, createdByUserId)` (generates cryptographic random token), `RedeemInviteAsync(token, userId)` (atomic findAndModify: mark used + return boardId, fail if already used), `GetPendingInvitesAsync(boardId)` | | |
+| TASK-019 | Create `Services/BoardService.cs` — methods: `CreateBoardAsync(name, ownerId)`, `GetBoardAsync(id)`, `GetOrCreateBoardAsync(name, userId)` (first caller becomes owner and member), `UpdateLastActivityAsync(boardId)`, `GetSnapshotAsync(boardName, requestingUserId)`, `GetFullSnapshotAsync(boardName)` (unfiltered, owner-only), `AddStrokeToSnapshotAsync(boardId, stroke)`, `RemoveStrokeFromSnapshotAsync(boardId, strokeId)`, `AddMemberAsync(boardId, userId)`, `IsMemberAsync(boardId, userId)`, `SetForcedNameAsync(boardId, targetUserId, forcedName)` (owner sets override), `ClearForcedNameAsync(boardId, targetUserId)` (owner removes override), `GetMembersWithNamesAsync(boardId)` (returns members with resolved display names: ForcedName ?? UserProfile.DisplayName). Note: administration methods `SetPublicAsync`/`SetMembersCanInviteAsync`/`RemoveMemberAsync` are in [feature-board-administration-1.md](./feature-board-administration-1.md); HiddenRange-based filtering plus `HideContributionsAsync`/`RestoreContributionsAsync`/`GetHiddenRangesAsync` are in [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md) | | |
+| TASK-020 | (Moved to [feature-board-administration-1.md](./feature-board-administration-1.md)) — `Services/InviteService.cs` (create/redeem/query invites) is specified in the board administration plan | | |
 | TASK-021 | Create `Services/StrokeEventService.cs` — methods: `AppendEventAsync(strokeEvent)`, `GetEventsAsync(boardId)` (full history for replay), `GetRecentEventsAsync(boardId, count)` (for undo lookup), `GetEventsSinceAsync(boardId, sequenceNumber)` | | |
-| TASK-022 | Create MongoDB indexes: compound index on `StrokeEvents` for `{ BoardId: 1, SequenceNumber: 1 }`, index on `{ BoardId: 1, Timestamp: 1 }` (replay), unique index on `Boards` for `{ Name: 1 }`, unique index on `Invites` for `{ Token: 1 }`, index on `Invites` for `{ BoardId: 1, IsUsed: 1 }`, unique index on `Users` for `{ UserId: 1 }`, and TTL index on `Boards.LastActivityAt` (optional, 30 days) | | |
+| TASK-022 | Create MongoDB indexes: compound index on `StrokeEvents` for `{ BoardId: 1, SequenceNumber: 1 }`, index on `{ BoardId: 1, Timestamp: 1 }` (replay), unique index on `Boards` for `{ Name: 1 }`, unique index on `Users` for `{ UserId: 1 }`, and TTL index on `Boards.LastActivityAt` (optional, 30 days). Note: `Invites` collection indexes are specified in [feature-board-administration-1.md](./feature-board-administration-1.md) | | |
 
 ### Implementation Phase 3
 
@@ -92,15 +89,12 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-023 | Create `Hubs/WhiteboardHub.cs` implementing `Hub` — all methods resolve userId from `Context.GetHttpContext().Items["UserId"]` (server-assigned, never from client). Methods: `JoinBoard(boardName)`, `JoinBoardWithInvite(token)`, `LeaveBoard(boardName)`, `SendStroke(boardName, strokeData)`, `UndoLastStroke(boardName)`, `CreateInvite(boardName)`, `SetPublic(boardName, isPublic)`, `SetMembersCanInvite(boardName, canInvite)`, `RemoveMember(boardName, targetUserId)`, `SetDisplayName(name)`, `SetForcedName(boardName, targetUserId, name)`, `ClearForcedName(boardName, targetUserId)`. Note: `HideContributions`/`RestoreContributions`/`ToggleShowHidden` hub methods are specified in [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md) | | |
+| TASK-023 | Create `Hubs/WhiteboardHub.cs` implementing `Hub` — all methods resolve userId from `Context.GetHttpContext().Items["UserId"]` (server-assigned, never from client). Methods: `JoinBoard(boardName)`, `LeaveBoard(boardName)`, `SendStroke(boardName, strokeData)`, `UndoLastStroke(boardName)`, `SetDisplayName(name)`, `SetForcedName(boardName, targetUserId, name)`, `ClearForcedName(boardName, targetUserId)`. Note: administration methods `JoinBoardWithInvite`/`CreateInvite`/`SetPublic`/`SetMembersCanInvite`/`RemoveMember` are in [feature-board-administration-1.md](./feature-board-administration-1.md); `HideContributions`/`RestoreContributions`/`ToggleShowHidden` are in [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md) | | |
 | TASK-024 | Implement `JoinBoard`: read userId from context, call `UserProfileService.GetOrCreateProfileAsync(userId)`, call `GetOrCreateBoardAsync(name, userId)` (first caller becomes owner+member). If board is private, verify `IsMemberAsync` — reject with `AccessDenied`. If public, auto-add as member. Send filtered snapshot + member list with resolved names to caller, broadcast `UserJoined(userId, displayName)` to group. | | |
-| TASK-025 | Implement `JoinBoardWithInvite`: read userId from context, call `InviteService.RedeemInviteAsync(token, userId)` — if successful, add user as member, join group, send filtered snapshot + member list. If token invalid/used, return `InvalidInvite` error. | | |
+| TASK-025 | (Moved to [feature-board-administration-1.md](./feature-board-administration-1.md)) — `JoinBoardWithInvite` hub implementation is specified in the board administration plan | | |
 | TASK-026 | Implement `SendStroke`: verify caller is a member, validate stroke data, add to snapshot, append event, broadcast to group | | |
 | TASK-027 | Implement `UndoLastStroke`: verify caller is a member, query recent events for last `Add` by caller, remove from snapshot, append `Remove` event, broadcast `StrokeRemoved(strokeId)` | | |
-| TASK-028 | Implement `CreateInvite`: verify caller is owner OR (`MembersCanInvite` is true AND caller is member). Call `InviteService.CreateInviteAsync`, return invite URL to caller. | | |
-| TASK-029 | Implement `SetPublic(boardName, isPublic)`: verify caller is owner, call `BoardService.SetPublicAsync`. Broadcast `BoardSettingsChanged` to group. | | |
-| TASK-030 | Implement `SetMembersCanInvite(boardName, canInvite)`: verify caller is owner, call `BoardService.SetMembersCanInviteAsync`. Broadcast `BoardSettingsChanged` to group. | | |
-| TASK-031 | Implement `RemoveMember(boardName, targetUserId)`: verify caller is owner AND target is not owner. Call `BoardService.RemoveMemberAsync`. Find target's connections via tracking dictionary, force-disconnect them from group, send `Kicked` event to target's connections. Broadcast `UserRemoved(targetUserId)` to group. | | |
+| TASK-028 | (Moved to [feature-board-administration-1.md](./feature-board-administration-1.md)) — `CreateInvite`, `SetPublic`, `SetMembersCanInvite`, and `RemoveMember` hub implementations are specified in the board administration plan | | |
 | TASK-032 | (Moved to [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md)) — `HideContributions`, `RestoreContributions`, and `ToggleShowHidden` hub implementations are specified in the visibility moderation plan | | |
 | TASK-035 | Implement `SetDisplayName(name)`: any user can call. Validate name (non-empty, max 30 chars). Call `UserProfileService.SetDisplayNameAsync(userId, name)`. Broadcast `UserRenamed(userId, resolvedName)` to all groups the user is in (resolved = ForcedName ?? new name). | | |
 | TASK-036 | Implement `SetForcedName(boardName, targetUserId, name)`: verify caller is owner. Call `BoardService.SetForcedNameAsync(boardId, targetUserId, name)`. Broadcast `UserRenamed(targetUserId, name)` to group. | | |
@@ -114,12 +108,12 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-040 | Create `wwwroot/index.html` — page with: board name input (or auto-join via URL path), invite token landing page, canvas element (full viewport), color picker, stroke width slider, undo button, display name input (editable), connected users list (showing resolved names), owner settings panel (hidden for non-owners) | | |
+| TASK-040 | Create `wwwroot/index.html` — page with: board name input (or auto-join via URL path), canvas element (full viewport), color picker, stroke width slider, undo button, display name input (editable), connected users list (showing resolved names), owner settings panel (hidden for non-owners). Note: invite-token landing UI per [feature-board-administration-1.md](./feature-board-administration-1.md) | | |
 | TASK-041 | Add SignalR JavaScript client via CDN: `<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>` | | |
 | TASK-042 | Create `wwwroot/js/canvas.js` — Canvas drawing module: capture mousedown/mousemove/mouseup and touch events, collect points into stroke objects with `TimeOffset` (ms since stroke start via `performance.now()`), compute `Duration`, render strokes on canvas using `CanvasRenderingContext2D` path API | | |
-| TASK-043 | Create `wwwroot/js/connection.js` — SignalR connection module: establish connection to `/hub/whiteboard` (identity via cookie, no client-supplied userId), implement `JoinBoard`/`JoinBoardWithInvite`, handle `LoadSnapshot`/`StrokeReceived`/`StrokeRemoved`/`UserJoined`/`UserLeft`/`UserRemoved`/`UserRenamed`/`BoardSettingsChanged`/`Kicked`/`AccessDenied`/`InvalidInvite` events (visibility moderation events `StrokesHidden`/`StrokesRestored` per [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md)) | | |
-| TASK-044 | Create `wwwroot/js/admin.js` — Owner panel module: show/hide based on ownership, wire buttons for `SetPublic`, `SetMembersCanInvite`, `CreateInvite` (copy link to clipboard), `RemoveMember`, `SetForcedName`/`ClearForcedName` (per-user in members list with inline edit). Handle `BoardSettingsChanged` and `UserRenamed` to update UI. Visibility moderation controls (hide/restore, show-hidden) per [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md) | | |
-| TASK-045 | Create `wwwroot/js/app.js` — Application orchestrator: detect invite token in URL, route join method, wire display name input to `SetDisplayName` on blur/enter, manage board state, handle reconnection, `Kicked`, `UserRenamed` (update members list) | | |
+| TASK-043 | Create `wwwroot/js/connection.js` — SignalR connection module: establish connection to `/hub/whiteboard` (identity via cookie, no client-supplied userId), implement `JoinBoard`, handle `LoadSnapshot`/`StrokeReceived`/`StrokeRemoved`/`UserJoined`/`UserLeft`/`UserRenamed` events. Note: administration events `UserRemoved`/`BoardSettingsChanged`/`Kicked`/`AccessDenied`/`InvalidInvite` and `joinBoardWithInvite` per [feature-board-administration-1.md](./feature-board-administration-1.md); visibility moderation events `StrokesHidden`/`StrokesRestored` per [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md) | | |
+| TASK-044 | Create `wwwroot/js/admin.js` — Owner panel module: show/hide based on ownership, wire buttons for `SetForcedName`/`ClearForcedName` (per-user in members list with inline edit). Handle `UserRenamed` to update UI. Note: board administration controls (invites, public/private, member removal) per [feature-board-administration-1.md](./feature-board-administration-1.md); visibility moderation controls (hide/restore, show-hidden) per [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md) | | |
+| TASK-045 | Create `wwwroot/js/app.js` — Application orchestrator: route join method, wire display name input to `SetDisplayName` on blur/enter, manage board state, handle reconnection, `UserRenamed` (update members list). Note: invite-URL detection and `Kicked` handling per [feature-board-administration-1.md](./feature-board-administration-1.md) | | |
 | TASK-046 | Create `wwwroot/css/style.css` — Minimal styling: full-viewport canvas, toolbar overlay, admin panel sidebar, name input, responsive layout | | |
 | TASK-047 | Implement `LoadSnapshot` handler: on receiving active strokes array + member list with resolved names, clear canvas and render all strokes immediately, populate members panel | | |
 
@@ -142,8 +136,7 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 | TASK-042 | Create `README.md` with: project overview, architecture diagram (text), prerequisites (dotnet 10 SDK, Atlas account), setup instructions (user-secrets configuration), usage guide, invite flow explanation | | |
 | TASK-043 | Add `.gitignore` entries to ensure user-secrets and `obj/`/`bin/` are excluded | | |
 | TASK-044 | Add integration test: `Tests/WhiteboardHubTests.cs` — verify JoinBoard returns snapshot, SendStroke persists and broadcasts, UndoLastStroke removes correct stroke, access denied for non-members on private boards | | |
-| TASK-045 | Add integration test: `Tests/InviteFlowTests.cs` — verify invite creation (owner-only by default), redemption adds member, double-redemption fails, member invite when `MembersCanInvite` enabled | | |
-| TASK-046 | Add integration test: `Tests/MemberRemovalTests.cs` — verify owner can remove member, removed user cannot rejoin private board, non-owner cannot remove others | | |
+| TASK-045 | (Moved to [feature-board-administration-1.md](./feature-board-administration-1.md)) — `Tests/InviteFlowTests.cs` and `Tests/MemberRemovalTests.cs` are specified in the board administration plan | | |
 | TASK-047 | Add unit test: `Tests/StrokeEventServiceTests.cs` — verify event append and query operations against Atlas (test database) | | |
 
 ## 3. Alternatives
@@ -172,28 +165,28 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 - **FILE-006**: `Models/BoardMember.cs` — Embedded member value object (UserId + optional ForcedName override)
 - **FILE-007**: `Models/UserProfile.cs` — User document with self-chosen DisplayName (global, stored in Users collection)
 - **FILE-008**: `Models/HiddenRange.cs` — (Defined in [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md))
-- **FILE-009**: `Models/Invite.cs` — Single-use invite token document
+- **FILE-009**: `Models/Invite.cs` — (Defined in [feature-board-administration-1.md](./feature-board-administration-1.md))
 - **FILE-010**: `Models/Stroke.cs` — Stroke value object (embedded in Board and StrokeEvent)
 - **FILE-011**: `Models/StrokeEvent.cs` — Append-only event log document (Add/Remove events for replay & undo)
 - **FILE-012**: `Models/Point.cs` — Point value object with TimeOffset
 - **FILE-013**: `Services/MongoDbContext.cs` — MongoDB connection and collection accessor (Boards, StrokeEvents, Invites, Users)
 - **FILE-014**: `Services/UserProfileService.cs` — User profile CRUD (display name management)
-- **FILE-015**: `Services/BoardService.cs` — Board CRUD, snapshot mutations, membership, visibility, forced name management
-- **FILE-016**: `Services/InviteService.cs` — Invite creation, atomic redemption, pending invite queries
+- **FILE-015**: `Services/BoardService.cs` — Board CRUD, snapshot mutations, core membership, forced name management (administration and visibility-moderation methods specified in their respective plans)
+- **FILE-016**: `Services/InviteService.cs` — (Defined in [feature-board-administration-1.md](./feature-board-administration-1.md))
 - **FILE-017**: `Services/StrokeEventService.cs` — Append-only event log persistence and querying
 - **FILE-018**: `Hubs/WhiteboardHub.cs` — SignalR hub for real-time collaboration with access control and name management
 - **FILE-019**: `wwwroot/index.html` — Main whiteboard page with admin panel and name editing
 - **FILE-020**: `wwwroot/js/canvas.js` — Canvas drawing engine
 - **FILE-021**: `wwwroot/js/connection.js` — SignalR client wrapper with identity via cookie
-- **FILE-022**: `wwwroot/js/admin.js` — Owner settings panel (invites, visibility, member management, forced names)
+- **FILE-022**: `wwwroot/js/admin.js` — Owner settings panel (forced names; board administration and visibility-moderation controls specified in their respective plans)
 - **FILE-023**: `wwwroot/js/app.js` — Application orchestrator with invite URL detection and name editing
 - **FILE-024**: `plan/feature-replay-history-1.md` — Extracted replay feature plan (history endpoint, animation engine, UI controls)
 - **FILE-025**: `wwwroot/css/style.css` — Stylesheet
 - **FILE-026**: `.gitignore` — Exclude bin/, obj/, user-secrets, IDE files
 - **FILE-027**: `README.md` — Project documentation with Atlas setup, invite flow, and name management
 - **FILE-028**: `Tests/WhiteboardHubTests.cs` — Hub integration tests
-- **FILE-029**: `Tests/InviteFlowTests.cs` — Invite system integration tests
-- **FILE-030**: `Tests/MemberRemovalTests.cs` — Member removal integration tests
+- **FILE-029**: `Tests/InviteFlowTests.cs` — (Specified in [feature-board-administration-1.md](./feature-board-administration-1.md))
+- **FILE-030**: `Tests/MemberRemovalTests.cs` — (Specified in [feature-board-administration-1.md](./feature-board-administration-1.md))
 - **FILE-031**: `Tests/DisplayNameTests.cs` — Pseudonym and forced name integration tests
 - **FILE-032**: `Tests/StrokeEventServiceTests.cs` — Event service unit tests
 
@@ -202,11 +195,7 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 - **TEST-001**: Integration test — Joining a public board returns empty snapshot for new boards and populated snapshot for existing boards; first joiner becomes owner
 - **TEST-002**: Integration test — Sending a stroke adds it to the board snapshot AND appends an Add event to the event log
 - **TEST-003**: Integration test — Undo removes only the current user's last stroke from snapshot, appends Remove event, and broadcasts removal to group
-- **TEST-004**: Integration test — Non-member joining a private board receives `AccessDenied`; joining with valid invite succeeds and adds membership
-- **TEST-005**: Integration test — Invite token can be redeemed exactly once; second redemption attempt fails with `InvalidInvite`
-- **TEST-006**: Integration test — Owner can remove member; removed member's connection receives `Kicked`; removed member cannot rejoin private board
-- **TEST-007**: Integration test — Non-owner cannot call `SetPublic`, `SetMembersCanInvite`, or `RemoveMember` (rejected with error)
-- **TEST-008**: Integration test — When `MembersCanInvite` is true, non-owner member can create invites; when false, only owner can
+- **TEST-004**: Board administration tests (invites, public/private access, member removal, owner-only enforcement) are specified in [feature-board-administration-1.md](./feature-board-administration-1.md)
 - **TEST-009**: Unit test — StrokeEventService.AppendEventAsync assigns incrementing sequence numbers per board
 - **TEST-010**: Unit test — StrokeEventService.GetEventsAsync returns events ordered by SequenceNumber ascending
 - **TEST-011**: Unit test — BoardService.GetSnapshotAsync returns only active strokes (excludes undone strokes)
@@ -214,7 +203,7 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 - **TEST-016**: Manual test — Open two browser tabs on the same board URL, draw in one, verify stroke appears in the other within 100ms
 - **TEST-017**: Manual test — Refresh page after drawing; verify all active strokes load instantly from snapshot
 - **TEST-018**: Manual test — Click replay button; verify strokes animate in chronological order with inactivity gaps compressed (detailed tests in [feature-replay-history-1.md](./feature-replay-history-1.md))
-- **TEST-019**: Manual test — Generate invite link as owner, open in incognito window, verify new user gains access to private board
+- **TEST-019**: Manual test — Board administration manual checks (invite link redemption, member removal) are in [feature-board-administration-1.md](./feature-board-administration-1.md)
 - **TEST-020**: Manual test — Visibility moderation manual checks are in [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md)
 
 ## 7. Risks & Assumptions
@@ -232,6 +221,7 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 ## 8. Related Specifications / Further Reading
 
 - [Replay & History View feature plan](./feature-replay-history-1.md) — extracted sub-plan for video-like replay functionality
+- [Board Administration feature plan](./feature-board-administration-1.md) — extracted sub-plan for invites, public/private visibility, and member removal
 - [Visibility Moderation feature plan](./feature-visibility-moderation-1.md) — extracted sub-plan for owner hide/restore of member contributions
 - [ASP.NET Core SignalR documentation](https://learn.microsoft.com/en-us/aspnet/core/signalr/introduction)
 - [MongoDB.Driver .NET documentation](https://www.mongodb.com/docs/drivers/csharp/current/)
