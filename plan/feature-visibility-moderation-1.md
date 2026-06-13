@@ -44,8 +44,8 @@ Implement a moderation capability that lets a board owner hide all contributions
 | TASK-003 | Implement `BoardService.HideContributionsAsync(boardId, targetUserId, hiddenBefore)` — upsert a HiddenRange for `targetUserId` with the given cut-off (replace existing entry for that user if present). | | |
 | TASK-004 | Implement `BoardService.RestoreContributionsAsync(boardId, targetUserId)` — remove the HiddenRange entry for `targetUserId`; return the list of strokes that become visible again (for broadcast). | | |
 | TASK-005 | Implement `BoardService.GetHiddenRangesAsync(boardId)` — return the current list of HiddenRange entries for a board. | | |
-| TASK-006 | Implement `BoardService.GetSnapshotAsync(boardName, requestingUserId)` — return active strokes filtered by HiddenRanges for non-owner callers (exclude strokes where `stroke.UserId` matches a HiddenRange and `stroke.Timestamp <= hiddenRange.HiddenBefore`). | | |
-| TASK-007 | Implement `BoardService.GetFullSnapshotAsync(boardName)` — return unfiltered active strokes; callers must verify ownership before invoking. | | |
+| TASK-006 | Implement `BoardService.GetSnapshotAsync(boardId, requestingUserId)` — return active strokes filtered by HiddenRanges for non-owner callers (exclude strokes where `stroke.UserId` matches a HiddenRange and `stroke.Timestamp <= hiddenRange.HiddenBefore`). | | |
+| TASK-007 | Implement `BoardService.GetFullSnapshotAsync(boardId)` — return unfiltered active strokes; callers must verify ownership before invoking. | | |
 
 ### Implementation Phase 2
 
@@ -53,11 +53,11 @@ Implement a moderation capability that lets a board owner hide all contributions
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-008 | Add hub methods to `Hubs/WhiteboardHub.cs`: `HideContributions(boardName, targetUserId)`, `RestoreContributions(boardName, targetUserId)`, `ToggleShowHidden(boardName, showHidden)` — all resolve userId from `Context.GetHttpContext().Items["UserId"]`. Per the parent plan's strongly typed hub convention (GUD-009), extend `IWhiteboardClient` with the server→client events this plan introduces (`StrokesHidden`, `StrokesRestored`) and broadcast them via the typed proxy (e.g. `Clients.Group(name).StrokesHidden(...)`), never `SendAsync`. | | |
-| TASK-009 | Implement `HideContributions(boardName, targetUserId)`: verify caller is owner (reject otherwise). Call `BoardService.HideContributionsAsync(boardId, targetUserId, DateTime.UtcNow)`. Broadcast `StrokesHidden(targetUserId, hiddenBefore)` to non-owner members. Owner's view unchanged. | | |
-| TASK-010 | Implement `RestoreContributions(boardName, targetUserId)`: verify caller is owner. Call `BoardService.RestoreContributionsAsync(boardId, targetUserId)`. Broadcast `StrokesRestored(targetUserId, restoredStrokes[])` to non-owner members. | | |
-| TASK-011 | Implement `ToggleShowHidden(boardName, showHidden)`: verify caller is owner. If showHidden=true, send full unfiltered snapshot to caller only (via `GetFullSnapshotAsync`). If false, send filtered snapshot. Personal view toggle — no broadcast. | | |
-| TASK-012 | Ensure `JoinBoard` snapshot delivery uses `GetSnapshotAsync(boardName, callerUserId)` so newly joining non-owner members receive the filtered snapshot, and owners receive the full snapshot. | | |
+| TASK-008 | Add hub methods to `Hubs/WhiteboardHub.cs`: `HideContributions(boardName, targetUserId)`, `RestoreContributions(boardName, targetUserId)`, `ToggleShowHidden(boardName, showHidden)` — all resolve the route slug to `boardId` and userId from `Context.GetHttpContext().Items["UserId"]`. Per the parent plan's strongly typed hub convention (GUD-009), extend `IWhiteboardClient` with the server→client events this plan introduces (`StrokesHidden`, `StrokesRestored`) and broadcast them via the typed proxy (e.g. `Clients.Group(name).StrokesHidden(...)`), never `SendAsync`. | | |
+| TASK-009 | Implement `HideContributions(boardName, targetUserId)`: verify caller is owner (reject otherwise). Resolve `boardId`, then call `BoardService.HideContributionsAsync(boardId, targetUserId, DateTime.UtcNow)`. Broadcast `StrokesHidden(targetUserId, hiddenBefore)` to non-owner members. Owner's view unchanged. | | |
+| TASK-010 | Implement `RestoreContributions(boardName, targetUserId)`: verify caller is owner. Resolve `boardId`, then call `BoardService.RestoreContributionsAsync(boardId, targetUserId)`. Broadcast `StrokesRestored(targetUserId, restoredStrokes[])` to non-owner members. | | |
+| TASK-011 | Implement `ToggleShowHidden(boardName, showHidden)`: verify caller is owner. Resolve `boardId`; if showHidden=true, send full unfiltered snapshot to caller only (via `GetFullSnapshotAsync(boardId)`). If false, send filtered snapshot. Personal view toggle — no broadcast. | | |
+| TASK-012 | Ensure `JoinBoard` snapshot delivery resolves `boardId` once and uses `GetSnapshotAsync(boardId, callerUserId)` so newly joining non-owner members receive the filtered snapshot, and owners receive the full snapshot. | | |
 
 ### Implementation Phase 3
 

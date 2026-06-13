@@ -20,6 +20,7 @@ Implement the board management REST surface that is not required to draw collabo
 
 - **REQ-001**: Provide `GET /api/boards` returning the list of public boards with their active stroke counts, for board discovery; requires no authentication
 - **REQ-002**: Provide `DELETE /api/boards/{name}` allowing the board owner to delete a board, clearing its snapshot and full event history; non-owners are rejected
+- **REQ-003**: Deleting a board must also remove any derived history-compaction keyframes and segment indexes for that board, and purge any pending invites for that board, so no stale load/replay artifact or redeemable invite token survives a hard delete
 - **CON-001**: Backend is ASP.NET Core 10.0 minimal APIs with built-in OpenAPI (`AddOpenApi`/`MapOpenApi`); do not add Swashbuckle (inherits parent GUD-001)
 - **CON-002**: Endpoints return `sealed record` response DTOs (never domain models), accept a `CancellationToken`, use correct HTTP status codes, and carry OpenAPI metadata (inherits parent GUD-003/005/006)
 - **DEP-001**: Depends on the core `IBoardService` for listing boards and clearing a board snapshot
@@ -45,8 +46,8 @@ Implement the board management REST surface that is not required to draw collabo
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-004 | Add to `IBoardService`/`BoardService`: `DeleteBoardAsync(boardName, requestingUserId, CancellationToken)` — verifies the requesting user is the board owner (`Board.OwnerId`, provided by the board administration plan), deletes the board document, and clears its events via `IStrokeEventService`. Returns a result distinguishing not-found vs. forbidden vs. deleted. | | |
-| TASK-005 | Add minimal-API endpoint `DELETE /api/boards/{name}` — owner-only; returns `204 No Content` on success, `404 Not Found` if absent, `403 Forbidden` for non-owners. Resolve the requesting userId from `HttpContext.Items["UserId"]`; accept `CancellationToken`; use `TypedResults` with an explicit `Results<NoContent, NotFound, ForbidHttpResult>` return type; chain `.WithName("DeleteBoard").WithSummary(...).Produces(204).Produces(404).Produces(403)`. | | |
+| TASK-004 | Add to `IBoardService`/`BoardService`: `DeleteBoardAsync(boardId, requestingUserId, CancellationToken)` — verifies the requesting user is the board owner (`Board.OwnerId`, provided by the board administration plan), deletes the board document, clears its events via `IStrokeEventService`, deletes all of the board's pending invites from the `Invites` collection (so deletion leaves no orphaned, redeemable invite tokens — the `Invites` collection is owned by [feature-board-administration-1.md](./feature-board-administration-1.md)), and, if history compaction is enabled, deletes that board's derived keyframes and segment indexes. Returns a result distinguishing not-found vs. forbidden vs. deleted. | | |
+| TASK-005 | Add minimal-API endpoint `DELETE /api/boards/{name}` — owner-only; returns `204 No Content` on success, `404 Not Found` if absent, `403 Forbidden` for non-owners. Resolve the route slug to `boardId` via the core board lookup helper, resolve the requesting userId from `HttpContext.Items["UserId"]`, then call `DeleteBoardAsync(boardId, requestingUserId, CancellationToken)`; accept `CancellationToken`; use `TypedResults` with an explicit `Results<NoContent, NotFound, ForbidHttpResult>` return type; chain `.WithName("DeleteBoard").WithSummary(...).Produces(204).Produces(404).Produces(403)`. | | |
 
 ### Implementation Phase 3
 
@@ -55,7 +56,7 @@ Implement the board management REST surface that is not required to draw collabo
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
 | TASK-006 | Add a request for each endpoint (`GET /api/boards`, `DELETE /api/boards/{name}`) to `canvas.http`, including an error path (delete non-existent board → 404; delete as non-owner → 403). | | |
-| TASK-007 | Add MSTest integration test `Tests/BoardManagementTests.cs` — listing returns only public boards with correct counts; owner can delete a board (snapshot + events removed); non-owner delete is rejected with 403; deleting a missing board returns 404. | | |
+| TASK-007 | Add MSTest integration test `Tests/BoardManagementTests.cs` — listing returns only public boards with correct counts; owner can delete a board (snapshot + events + pending invites + derived keyframes removed); non-owner delete is rejected with 403; deleting a missing board returns 404. | | |
 
 ## 3. Alternatives
 
@@ -67,6 +68,7 @@ Implement the board management REST surface that is not required to draw collabo
 - **DEP-001**: `Services/BoardService.cs` (`IBoardService`) — board listing and snapshot clearing
 - **DEP-002**: `Services/StrokeEventService.cs` (`IStrokeEventService`) — event history clearing
 - **DEP-003**: [feature-board-administration-1.md](./feature-board-administration-1.md) — `Board.OwnerId` and ownership establishment (owner-only delete)
+- **DEP-004**: [feature-history-compaction-1.md](./feature-history-compaction-1.md) — derived keyframes and segment indexes that must be purged on board deletion
 
 ## 5. Files
 

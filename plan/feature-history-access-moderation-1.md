@@ -25,8 +25,8 @@ Govern **who may read the replay history and what they see**. This plan owns the
 - **CON-001**: Filtering is applied at serve-time on the history read path; the `StrokeEvent` log is never mutated by a hide/restore operation (consistent with PAT-001 of the visibility-moderation plan)
 - **CON-002**: Ownership, membership, and the hidden/visible decision are resolved server-side from the server-assigned identity; client-supplied identity is never trusted
 - **CON-003**: Backend is ASP.NET Core 10.0 with MongoDB Atlas
-- **DEP-001**: Depends on the history endpoint `GET /api/boards/{name}/history` and `StrokeEventService.GetEventsAsync(boardName)` introduced by [feature-replay-history-1.md](./feature-replay-history-1.md)
-- **DEP-002**: Depends on `BoardService.GetHiddenRangesAsync(boardName)`, the `HiddenRange` model, and the board ownership check introduced by [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md)
+- **DEP-001**: Depends on the history endpoint `GET /api/boards/{name}/history` and `StrokeEventService.GetEventsAsync(boardId)` introduced by [feature-replay-history-1.md](./feature-replay-history-1.md)
+- **DEP-002**: Depends on `BoardService.GetBoardByNameAsync(name)` for route-boundary resolution to `boardId`, `BoardService.GetHiddenRangesAsync(boardId)`, the `HiddenRange` model, and the board ownership check introduced by [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md)
 - **DEP-003**: Depends on `Middleware/UserIdentityMiddleware.cs` for userId resolution on REST requests
 - **DEP-004**: Depends on `BoardService.IsMemberAsync(boardId, userId)` and the membership model introduced by [feature-board-administration-1.md](./feature-board-administration-1.md) for the membership access gate (REQ-004)
 - **PAT-001**: Serve-time filtering — history visibility is a read-path projection over the immutable event log, not a write-path mutation
@@ -39,9 +39,9 @@ Govern **who may read the replay history and what they see**. This plan owns the
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-001 | In the `GET /api/boards/{name}/history` handler (defined in [feature-replay-history-1.md](./feature-replay-history-1.md), TASK-002/003), resolve the caller's userId and enforce the **membership access gate** (REQ-004): verify `BoardService.IsMemberAsync(boardId, userId)` and return `403 Forbidden` for non-members of a private board (public boards remain open, consistent with the snapshot endpoint). Then determine whether the caller is the board owner. | | |
+| TASK-001 | In the `GET /api/boards/{name}/history` handler (defined in [feature-replay-history-1.md](./feature-replay-history-1.md), TASK-002/003), resolve the route slug to `boardId` via the core board lookup helper, then resolve the caller's userId and enforce the **membership access gate** (REQ-004): verify `BoardService.IsMemberAsync(boardId, userId)` and return `403 Forbidden` for non-members of a private board (public boards remain open, consistent with the snapshot endpoint). Then determine whether the caller is the board owner. | | |
 | TASK-002 | If the caller is the owner, return the events unchanged (full unfiltered history). | | |
-| TASK-003 | If the caller is a non-owner member, fetch `BoardService.GetHiddenRangesAsync(boardName)` and exclude every event where `event.Stroke.UserId` matches a HiddenRange entry AND `event.Timestamp <= hiddenRange.HiddenBefore`. Apply the filter before pagination so page counts reflect the visible set. | | |
+| TASK-003 | If the caller is a non-owner member, fetch `BoardService.GetHiddenRangesAsync(boardId)` and exclude every event where `event.Stroke.UserId` matches a HiddenRange entry AND `event.Timestamp <= hiddenRange.HiddenBefore`. Apply the filter before pagination so page counts reflect the visible set. | | |
 | TASK-004 | Ensure the membership gate and the HiddenRanges filter are composed as a thin wrapper/projection over the replay plan's event retrieval, so that replay-history remains usable standalone (open + unfiltered) when this plan is not applied. | | |
 
 ### Implementation Phase 2
@@ -65,8 +65,8 @@ Govern **who may read the replay history and what they see**. This plan owns the
 ## 4. Dependencies
 
 - **DEP-001**: `Program.cs` — the `GET /api/boards/{name}/history` endpoint handler (from [feature-replay-history-1.md](./feature-replay-history-1.md)) is the injection point for the filter
-- **DEP-002**: `Services/StrokeEventService.cs` — `GetEventsAsync(boardName)` provides the unfiltered events to project over (from [feature-replay-history-1.md](./feature-replay-history-1.md))
-- **DEP-003**: `Services/BoardService.cs` — `GetHiddenRangesAsync(boardName)` and the ownership check (from [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md))
+- **DEP-002**: `Services/StrokeEventService.cs` — `GetEventsAsync(boardId)` provides the unfiltered events to project over (from [feature-replay-history-1.md](./feature-replay-history-1.md))
+- **DEP-003**: `Services/BoardService.cs` — `GetBoardByNameAsync(name)`, `GetHiddenRangesAsync(boardId)`, and the ownership check (from [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md))
 - **DEP-004**: `Models/HiddenRange.cs` — `UserId` + `HiddenBefore` cut-off (from [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md))
 - **DEP-005**: `Models/StrokeEvent.cs` — carries the embedded `Stroke` (`UserId`, `Timestamp`) the filter keys off (from [feature-replay-history-1.md](./feature-replay-history-1.md))
 - **DEP-006**: `Services/BoardService.cs` — `IsMemberAsync(boardId, userId)` and the membership model (from [feature-board-administration-1.md](./feature-board-administration-1.md)) backing the membership access gate (REQ-004)
