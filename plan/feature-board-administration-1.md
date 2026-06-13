@@ -23,6 +23,7 @@ Implement the board owner's administration capabilities layered on top of the co
 - **REQ-003**: Board owner can toggle board visibility between public (anyone with the URL can join) and private (invite-only) at any time
 - **REQ-004**: Board owner can remove existing members from the board; removed members lose access immediately and their active connections are disconnected
 - **REQ-005**: Board owner can override (force) the visible pseudonym of any member on their board; the forced name is what all other members see regardless of the user's self-chosen name. The owner can clear the override, reverting to the member's self-chosen name.
+- **REQ-006**: Once boards can be private or members can be removed, the core stroke operations (`SendStroke`, `UndoLastStroke`) and the REST snapshot endpoint must verify the caller is a member and reject non-members; this membership verification is owned by this plan and layered onto the core operations
 - **CON-001**: Only the board owner may invoke `SetPublic`, `SetMembersCanInvite`, `RemoveMember`, `SetForcedName`, and `ClearForcedName`; the server enforces ownership and never trusts client-supplied identity
 - **CON-002**: The owner cannot be removed from their own board
 - **CON-003**: Invite tokens are cryptographically random, URL-safe, and single-use (atomic redemption)
@@ -50,7 +51,7 @@ Implement the board owner's administration capabilities layered on top of the co
 
 ### Implementation Phase 2
 
-- GOAL-002: Implement SignalR hub methods for invites, visibility toggling, and member removal with owner enforcement
+- GOAL-002: Implement SignalR hub methods for invites, visibility toggling, and member removal with owner enforcement, plus member-access enforcement on the core stroke operations
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
@@ -62,6 +63,9 @@ Implement the board owner's administration capabilities layered on top of the co
 | TASK-010 | Implement `RemoveMember(boardName, targetUserId)`: verify caller is owner AND target is not owner. Call `BoardService.RemoveMemberAsync`. Find target's connections via the connection-tracking dictionary, force-disconnect them from the group, send `Kicked` event to target's connections. Broadcast `UserRemoved(targetUserId)` to group. | | |
 | TASK-011 | Add a connection-tracking dictionary (userId → set of connection ids) maintained in `OnConnectedAsync`/`OnDisconnectedAsync` (or a shared singleton) so `RemoveMember` can locate and disconnect a target's connections. | | |
 | TASK-012 | Ensure the core `JoinBoard` flow enforces private-board access: if board `IsPublic` is false, reject non-members with `AccessDenied`; if public, auto-add as member. (This enforcement is the consumer of REQ-003 and lives in the core hub.) | | |
+| TASK-031 | Layer member-access enforcement onto the core `SendStroke` hub method (`Hubs/WhiteboardHub.cs`): before validating/persisting the stroke, verify the caller is a member via `BoardService.IsMemberAsync(boardId, userId)`; reject non-members (e.g. a removed member, or a non-member on a private board) with `AccessDenied` and neither persist nor broadcast the stroke. (In the MVP every joiner is auto-added as a member, so this guard never rejects; it becomes meaningful once boards can be private or members can be removed.) | | |
+| TASK-032 | Layer member-access enforcement onto the core `UndoLastStroke` hub method (`Hubs/WhiteboardHub.cs`): verify the caller is a member via `BoardService.IsMemberAsync(boardId, userId)` before querying/removing their last stroke; reject non-members with `AccessDenied`. | | |
+| TASK-033 | Layer private-board access enforcement onto the core REST snapshot endpoint `GET /api/boards/{name}/snapshot`: for private boards (`IsPublic` is false), require a `userId` and verify membership via `BoardService.IsMemberAsync(boardId, userId)`, returning `403 Forbidden` for non-members; public boards remain open. | | |
 
 ### Implementation Phase 3
 
@@ -85,6 +89,7 @@ Implement the board owner's administration capabilities layered on top of the co
 | TASK-019 | Add integration test `Tests/MemberRemovalTests.cs` — verify owner can remove member, removed member's connection receives `Kicked`, removed user cannot rejoin a private board, non-owner cannot remove others. | | |
 | TASK-020 | Add integration test in `Tests/BoardAdminTests.cs` — non-owner cannot call `SetPublic`, `SetMembersCanInvite`, or `RemoveMember` (rejected with error); owner cannot be removed. | | |
 | TASK-021 | Add integration test — non-member joining a private board receives `AccessDenied`; joining with a valid invite succeeds and adds membership; after toggling to public, any user may join. | | |
+| TASK-034 | Add integration test `Tests/MemberAccessTests.cs` — on a private board, a non-member calling `SendStroke` or `UndoLastStroke` is rejected with `AccessDenied` and no stroke is persisted/broadcast; a removed member can no longer send strokes; the `GET /api/boards/{name}/snapshot` endpoint returns `403` for a non-member of a private board and serves the snapshot for members and for public boards. | | |
 | TASK-022 | Manual test — Generate an invite link as owner, open it in an incognito window, verify the new user gains access to a private board; redeem the same link a second time and verify it is rejected. | | |
 | TASK-023 | Manual test — As owner, remove a member who has a second browser tab open; verify their tab receives `Kicked` and they cannot rejoin the private board. | | |
 
@@ -115,7 +120,7 @@ Implement the board owner's administration capabilities layered on top of the co
 - **DEP-001**: `Models/Board.cs` — `OwnerId`, `IsPublic`, `MembersCanInvite`, `Members` (`BoardMember` value object)
 - **DEP-002**: `Services/BoardService.cs` — core membership primitives (`GetOrCreateBoardAsync`, `AddMemberAsync`, `IsMemberAsync`, `GetMembersWithNamesAsync`)
 - **DEP-003**: `Services/MongoDbContext.cs` — `Invites` collection accessor
-- **DEP-004**: `Hubs/WhiteboardHub.cs` — server-assigned identity, core `JoinBoard`, `SetDisplayName`, group broadcasting
+- **DEP-004**: `Hubs/WhiteboardHub.cs` — server-assigned identity, core `JoinBoard`, `SendStroke`, `UndoLastStroke`, `SetDisplayName`, group broadcasting
 - **DEP-005**: `Services/UserProfileService.cs` — resolve a member's self-chosen `DisplayName` when an override is cleared
 - **DEP-006**: `wwwroot/js/admin.js`, `connection.js`, `app.js`, `index.html` — owner panel and invite landing UI
 
@@ -125,7 +130,7 @@ Implement the board owner's administration capabilities layered on top of the co
 - **FILE-002**: `Services/InviteService.cs` — Invite creation, atomic redemption, pending invite queries
 - **FILE-003**: `Services/BoardService.cs` — Add `SetPublicAsync`, `SetMembersCanInviteAsync`, `RemoveMemberAsync`, `SetForcedNameAsync`, `ClearForcedNameAsync`; update `GetMembersWithNamesAsync` resolution
 - **FILE-004**: `Models/BoardMember.cs` — Add `ForcedName` (owner-assigned pseudonym override)
-- **FILE-005**: `Hubs/WhiteboardHub.cs` — Add `JoinBoardWithInvite`, `CreateInvite`, `SetPublic`, `SetMembersCanInvite`, `RemoveMember`, `SetForcedName`, `ClearForcedName`, and connection tracking
+- **FILE-005**: `Hubs/WhiteboardHub.cs` — Add `JoinBoardWithInvite`, `CreateInvite`, `SetPublic`, `SetMembersCanInvite`, `RemoveMember`, `SetForcedName`, `ClearForcedName`, connection tracking, and member-access guards on the core `SendStroke`/`UndoLastStroke` methods
 - **FILE-006**: `wwwroot/js/admin.js` — Owner settings panel (invites, public/private, member removal, forced names)
 - **FILE-007**: `wwwroot/js/connection.js` — Register `BoardSettingsChanged`/`UserRemoved`/`Kicked`/`AccessDenied`/`InvalidInvite` handlers
 - **FILE-008**: `wwwroot/js/app.js` — Invite URL detection and kick handling
@@ -134,6 +139,8 @@ Implement the board owner's administration capabilities layered on top of the co
 - **FILE-011**: `Tests/MemberRemovalTests.cs` — Member removal integration tests
 - **FILE-012**: `Tests/BoardAdminTests.cs` — Owner-only control enforcement tests
 - **FILE-013**: `Tests/ForcedNameTests.cs` — Owner-forced pseudonym integration tests
+- **FILE-014**: `Tests/MemberAccessTests.cs` — Member-access enforcement tests for `SendStroke`, `UndoLastStroke`, and the REST snapshot endpoint
+- **FILE-015**: REST snapshot endpoint controller (e.g. `Controllers/BoardsController.cs` from the parent plan) — Add private-board membership enforcement to `GET /api/boards/{name}/snapshot`
 
 ## 6. Testing
 
@@ -146,6 +153,7 @@ Implement the board owner's administration capabilities layered on top of the co
 - **TEST-007**: Integration test — Owner sets a forced name; all members see it via `UserRenamed`; the member's self `SetDisplayName` does not override it; clearing the override reverts to the self-chosen name
 - **TEST-008**: Manual test — Generate invite link as owner, open in incognito window, verify new user gains access to private board
 - **TEST-009**: Manual test — Owner forces a member's pseudonym, the member changes their own name, others still see the forced name; owner clears it and the self-chosen name returns
+- **TEST-010**: Integration test — On a private board, a non-member calling `SendStroke` or `UndoLastStroke` is rejected with `AccessDenied` (nothing persisted/broadcast); a removed member can no longer send strokes; `GET /api/boards/{name}/snapshot` returns `403` for a non-member of a private board and serves the snapshot for members and public boards
 
 ## 7. Risks & Assumptions
 
