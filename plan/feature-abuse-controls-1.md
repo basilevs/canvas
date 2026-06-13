@@ -20,7 +20,8 @@ Implement server-side abuse controls that protect the whiteboard from flooding a
 
 - **REQ-001**: Limit request volume per client IP range (using a /24 IPv4 subnet as the key) to bound damage from a single network source
 - **REQ-002**: Limit request volume per authenticated user (anonymous pseudonymous identity) to bound damage from a single client
-- **SEC-001**: Rate limiting must apply to both the SignalR hub negotiate/connection path and the REST API endpoints
+- **SEC-001**: HTTP rate limiting (`UseRateLimiter`) must apply to the SignalR hub **negotiate/connection** path and the REST API endpoints. **Caveat:** `UseRateLimiter` is HTTP middleware — it governs only the connect/negotiate handshake, **not** individual hub method invocations sent over an already-established WebSocket. It therefore bounds connection churn but does **not** stop a connected client from flooding `SendStroke`/`MoveCursor`, which is the primary abuse vector.
+- **SEC-003**: To close the gap SEC-001 leaves, the hub itself must throttle **per-connection (and per-user) message rate** for the high-frequency mutating/broadcast methods (`SendStroke`, `MoveCursor`): apply an in-hub token-bucket / sliding-window check (keyed on `Context.ConnectionId` and the server-assigned userId) that drops or rejects messages exceeding a configurable rate, since these never pass through `UseRateLimiter`. Cursor moves are already client-throttled (parent TASK-043) but must not be trusted to be.
 - **SEC-002**: Rate-limit thresholds and windows must be configuration-driven (`appsettings.json`), not hard-coded
 - **CON-001**: Use the built-in ASP.NET Core rate limiting middleware (`Microsoft.AspNetCore.RateLimiting`) — no third-party rate limiter
 - **CON-002**: Rate limiting middleware ordering must be correct relative to authentication so the per-user key is available
@@ -46,7 +47,8 @@ Implement server-side abuse controls that protect the whiteboard from flooding a
 |------|-------------|-----------|------|
 | TASK-004 | Add a `RateLimits` configuration section to `appsettings.json` (per-ip permit limit + window, per-user permit limit + window). | | |
 | TASK-005 | Add `app.UseRateLimiter()` to the middleware pipeline in the correct order — after the anonymous identity middleware (so the per-user key is populated) and before endpoint execution. | | |
-| TASK-006 | Apply the `"per-ip"` and `"per-user"` policies to the SignalR hub mapping and to the REST API endpoints (e.g. `.RequireRateLimiting(...)`). | | |
+| TASK-006 | Apply the `"per-ip"` and `"per-user"` policies to the SignalR hub mapping and to the REST API endpoints (e.g. `.RequireRateLimiting(...)`). Note this covers only the negotiate/connection handshake (SEC-001 caveat), not per-message hub traffic. | | |
+| TASK-008 | Implement an **in-hub message throttle** (SEC-003) for the high-frequency hub methods `SendStroke` and `MoveCursor`: a token-bucket / sliding-window limiter keyed on `Context.ConnectionId` and the server-assigned userId, with limits/windows read from the `RateLimits` configuration section (TASK-004). On exceeding the limit, drop or reject the message (do not persist/broadcast) — and for `SendStroke`, surface a throttling signal to the caller. State held in a `ConcurrentDictionary` cleaned up in `OnDisconnectedAsync` (single-server, per ASSUMPTION-001 of the parent plan). | | |
 
 ### Implementation Phase 3
 
@@ -55,6 +57,7 @@ Implement server-side abuse controls that protect the whiteboard from flooding a
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
 | TASK-007 | Add MSTest integration test `Tests/RateLimitingTests.cs` — exceeding the per-ip or per-user limit returns `429`; requests under the limit succeed; two clients in different /24 subnets are limited independently. | | |
+| TASK-009 | Add MSTest integration test `Tests/HubThrottleTests.cs` — a connection that exceeds the configured `SendStroke` message rate has its excess strokes dropped (neither persisted nor broadcast) while a well-behaved connection is unaffected (covers SEC-003 / TASK-008). | | |
 
 ## 3. Alternatives
 
@@ -72,12 +75,15 @@ Implement server-side abuse controls that protect the whiteboard from flooding a
 - **FILE-002**: `Program.cs` — `AddRateLimiter` policies and `UseRateLimiter` ordering; apply policies to hub + API
 - **FILE-003**: `appsettings.json` — `RateLimits` configuration section
 - **FILE-004**: `Tests/RateLimitingTests.cs` — Rate limiting integration tests
+- **FILE-005**: `Hubs/WhiteboardHub.cs` (+ a `Hubs/HubMessageThrottle.cs` helper) — In-hub per-connection/per-user message throttle for `SendStroke`/`MoveCursor` (SEC-003, TASK-008)
+- **FILE-006**: `Tests/HubThrottleTests.cs` — In-hub message-throttle integration tests
 
 ## 6. Testing
 
 - **TEST-001**: Integration test — Requests under the configured limit succeed; exceeding the per-ip limit returns `429` with `Retry-After`
 - **TEST-002**: Integration test — Exceeding the per-user limit returns `429` independently of IP
 - **TEST-003**: Integration test — Clients in different /24 subnets are rate-limited independently
+- **TEST-004**: Integration test — A connection exceeding the in-hub `SendStroke` message rate has its excess strokes dropped (not persisted/broadcast); a well-behaved connection is unaffected (SEC-003)
 
 ## 7. Risks & Assumptions
 

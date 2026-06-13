@@ -21,7 +21,7 @@ Implement a moderation capability that lets a board owner hide all contributions
 - **REQ-001**: Board owner can hide all contributions of any member up to the current moment; hidden strokes become invisible to all other members but remain in storage
 - **REQ-002**: Board owner can restore previously hidden contributions of a member, making them visible to all members again
 - **REQ-003**: Board owner can toggle a personal "show hidden" view to see all strokes including hidden ones (other members always see the filtered view)
-- **REQ-004**: The **snapshot** endpoint is filtered by the owner's visibility settings (HiddenRanges) for non-owner members; only the owner can access the unfiltered view. (Applying the same HiddenRanges to the replay **history** endpoint is handled by [feature-history-cutoff-moderation-1.md](./feature-history-cutoff-moderation-1.md).)
+- **REQ-004**: The **snapshot** endpoint is filtered by the owner's visibility settings (HiddenRanges) for non-owner members; only the owner can access the unfiltered view. (Applying the same HiddenRanges to the replay **history** endpoint is handled by [feature-history-access-moderation-1.md](./feature-history-access-moderation-1.md).)
 - **CON-001**: Hiding never deletes data — the stored `ActiveStrokes` snapshot and StrokeEvent log always contain all strokes; filtering is applied at serve-time
 - **CON-002**: Only the board owner may invoke hide/restore/show-hidden operations; the server enforces ownership and never trusts client-supplied identity
 - **CON-003**: Backend is ASP.NET Core 10.0 with MongoDB Atlas; real-time via SignalR
@@ -128,6 +128,6 @@ Implement a moderation capability that lets a board owner hide all contributions
 ## 8. Related Specifications / Further Reading
 
 - [Main whiteboard implementation plan](./feature-collaborative-whiteboard-1.md) — parent plan containing the data model, SignalR hub, and persistence layer
-- [History cut-off moderation feature plan](./feature-history-cutoff-moderation-1.md) — applies these HiddenRanges to filter replay history (the history-side counterpart of this live-snapshot moderation)
+- [History access & moderation feature plan](./feature-history-access-moderation-1.md) — applies these HiddenRanges (and the membership gate) to filter replay history (the history-side counterpart of this live-snapshot moderation)
 - [Replay & History View feature plan](./feature-replay-history-1.md) — defines the event log and history endpoint that cut-off moderation filters
 - [ASP.NET Core SignalR groups](https://learn.microsoft.com/en-us/aspnet/core/signalr/groups)

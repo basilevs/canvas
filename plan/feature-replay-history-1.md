@@ -25,7 +25,7 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 - **REQ-003**: Inactivity gaps exceeding a configurable threshold (default 3 seconds) are compressed/skipped during playback
 - **REQ-004**: Playback speed is adjustable: 1x, 2x, 4x multipliers
 - **REQ-005**: VCR controls: play, pause, seek (timeline scrubber), stop (exit replay)
-- **REQ-006**: This plan serves the **complete unfiltered** stroke history to board members; owner-controlled visibility filtering of replay (HiddenRanges cut-offs) is a separate concern layered on by [feature-history-cutoff-moderation-1.md](./feature-history-cutoff-moderation-1.md)
+- **REQ-006**: On its own (layered only on the MVP) this plan's history endpoint is **open to any identified caller** and serves the **complete unfiltered** stroke history — consistent with the MVP where all boards are public. The **membership access gate** (reject non-members with `403`) and owner-controlled visibility filtering of replay (HiddenRanges cut-offs) are separate concerns layered on by [feature-history-access-moderation-1.md](./feature-history-access-moderation-1.md), which depends on the membership and HiddenRange models from the administration/moderation plans
 - **REQ-007**: Replay data is fetched from a dedicated REST endpoint, paginated for large boards
 - **REQ-008**: This plan introduces the append-only event log stored in a **native MongoDB time-series collection**: every accepted stroke is recorded as an `Add` `StrokeEvent` keyed on `Timestamp` (the time-series `timeField`) and `BoardName` (the `metaField`), carrying the embedded stroke's temporal metadata. Events are ordered chronologically by `Timestamp` (ties broken by the stable stroke `Id`) — there is no per-board `SequenceNumber`
 - **REQ-009**: A user can undo their own most recently drawn stroke; undo removes it from the live `Board.ActiveStrokes` snapshot, records a `Remove` `StrokeEvent`, and broadcasts the removal so every connected client updates. Undo only affects the caller's own strokes and is a no-op when the caller has no remaining strokes
@@ -34,7 +34,7 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 - **CON-003**: `StrokeEvent` documents carry `Timestamp` (the `timeField`), `Type`, `Stroke.Duration`, and `Stroke.Points[].TimeOffset`, and are persisted in a **native time-series collection** (`metaField` = `BoardName`, `granularity` = `seconds`). The `Stroke`/`Point` temporal fields are reused from the MVP data model, but the event-log document and its collection are introduced by this plan (Phase 0)
 - **DEP-001**: `Services/StrokeEventService.cs` — introduced by this plan (Phase 0); provides `GetEventsAsync(boardName)` and filtered event queries
 - **DEP-002**: Depends on `Middleware/UserIdentityMiddleware.cs` for userId resolution on REST requests
-- **DEP-003**: Depends on `Services/BoardService.cs` providing `IsMemberAsync(boardName, userId)` for member-access enforcement on the history endpoint (membership model introduced by [feature-board-administration-1.md](./feature-board-administration-1.md))
+- **DEP-003**: This plan's history endpoint requires **no** membership model and builds on the MVP alone (it is open to any identified caller, REQ-006). The member-access gate (`BoardService.IsMemberAsync`, from [feature-board-administration-1.md](./feature-board-administration-1.md)) is layered onto the endpoint by [feature-history-access-moderation-1.md](./feature-history-access-moderation-1.md), not by this plan
 
 ## 2. Implementation Steps
 
@@ -58,10 +58,10 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
 | TASK-001 | Add REST endpoint `GET /api/boards/{name}/history` in `Program.cs` with query parameters `page` (int, default 1) and `pageSize` (int, default 100, max 500). The caller's identity is **not** a query/body parameter — it is resolved server-side from `HttpContext.Items["UserId"]` (see TASK-002) and never trusted from the client (consistent with the parent plan's SEC-002), so it cannot be supplied or spoofed via the URL (avoids leaking identity through `Referer`/logs/history). Route: `app.MapGet("/api/boards/{name}/history", ...)` | | |
-| TASK-002 | Implement endpoint handler: resolve userId from `HttpContext.Items["UserId"]`, verify membership via `BoardService.IsMemberAsync`, return 403 if unauthorized. Fetch the board. | | |
-| TASK-003 | Return all StrokeEvents for the board ordered by Timestamp, paginated. Note: owner-controlled HiddenRanges filtering for non-owner members is layered onto this handler by [feature-history-cutoff-moderation-1.md](./feature-history-cutoff-moderation-1.md); on its own this plan serves the unfiltered history to any member. | | |
+| TASK-002 | Implement endpoint handler: resolve userId from `HttpContext.Items["UserId"]` (so an identity is always present), then fetch the board (return `404` if absent). On its own this plan applies **no** membership gate — any identified caller is served (REQ-006); the `IsMemberAsync` `403` gate is layered on later by [feature-history-access-moderation-1.md](./feature-history-access-moderation-1.md). | | |
+| TASK-003 | Return all StrokeEvents for the board ordered by Timestamp, paginated. Note: the membership access gate and owner-controlled HiddenRanges filtering for non-owner members are layered onto this handler by [feature-history-access-moderation-1.md](./feature-history-access-moderation-1.md); on its own this plan serves the unfiltered history to any identified caller. | | |
 | TASK-004 | Return JSON response: `{ "events": [...], "page": 1, "pageSize": 100, "totalEvents": N, "totalPages": M }`. Each event includes: `id`, `type` (Add/Remove), `stroke` (with id, points, color, width, duration), `timestamp`. | | |
-| TASK-005 | Add integration test `Tests/ReplayHistoryEndpointTests.cs`: verify pagination metadata and verify 403 for non-members. (HiddenRanges filtering tests live in [feature-history-cutoff-moderation-1.md](./feature-history-cutoff-moderation-1.md).) | | |
+| TASK-005 | Add integration test `Tests/ReplayHistoryEndpointTests.cs`: verify pagination metadata and that an identified caller receives the complete history. (The membership-`403` gate and HiddenRanges filtering tests live in [feature-history-access-moderation-1.md](./feature-history-access-moderation-1.md).) | | |
 
 ### Implementation Phase 2
 
@@ -102,7 +102,7 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
 | TASK-024 | Unit test `Tests/ReplayEngineTests.js` (or inline in HTML test page): verify `computeTimeline()` compresses gaps > 3s, verify totalDurationMs is correct, verify seek renders correct state at midpoint. | | |
-| TASK-025 | Integration test `Tests/ReplayHistoryEndpointTests.cs`: verify the endpoint returns events with correct pagination metadata and that members receive the complete history. (HiddenRanges filtering tests live in [feature-history-cutoff-moderation-1.md](./feature-history-cutoff-moderation-1.md).) | | |
+| TASK-025 | Integration test `Tests/ReplayHistoryEndpointTests.cs`: verify the endpoint returns events with correct pagination metadata and that any identified caller receives the complete history. (The membership-`403` gate and HiddenRanges filtering tests live in [feature-history-access-moderation-1.md](./feature-history-access-moderation-1.md).) | | |
 | TASK-026 | Manual test — Draw 5 strokes with 10+ second pauses between some. Click replay. Verify inactivity gaps are compressed, strokes animate point-by-point, total replay duration is much shorter than real elapsed time. | | |
 | TASK-027 | Manual test — During replay, click pause, move scrubber to 50%, resume. Verify canvas shows correct state at midpoint and continues animating from there. | | |
 | TASK-028 | Manual test — Change speed from 1x to 4x during playback. Verify animation speeds up smoothly without jumping. | | |
@@ -177,7 +177,7 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 ## 8. Related Specifications / Further Reading
 
 - [Main whiteboard implementation plan](./feature-collaborative-whiteboard-1.md) — parent plan containing data model, SignalR hub, and persistence layer
-- [History cut-off moderation feature plan](./feature-history-cutoff-moderation-1.md) — layers owner-controlled HiddenRanges filtering onto the history endpoint defined here
+- [History access & moderation feature plan](./feature-history-access-moderation-1.md) — layers the membership access gate and owner-controlled HiddenRanges filtering onto the history endpoint defined here
 - [Visibility moderation feature plan](./feature-visibility-moderation-1.md) — the live-snapshot counterpart of cut-off moderation; defines the HiddenRange model reused for history filtering
 - [History compaction feature plan](./feature-history-compaction-1.md) — keeps large-history boards fast to load via derived keyframes over the event log this plan introduces, while retaining full history for on-demand replay
 - [requestAnimationFrame documentation](https://developer.mozilla.org/en-US/docs/Web/API/window/requestAnimationFrame)
