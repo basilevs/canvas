@@ -141,6 +141,7 @@ This document covers the MVP only: anonymous drawing, real-time stroke and curso
 ### 5.3 Advanced features & edge cases
 
 - A collaborator joining a busy board mid-session sees the complete current drawing, not a blank canvas.
+- A malformed or overly long board name typed into the URL is handled gracefully (rejected or normalized), not turned into a broken board.
 - A brief network drop reconnects automatically and re-synchronizes without losing or duplicating strokes.
 - Two collaborators drawing simultaneously both have their strokes preserved (no lost updates).
 - A collaborator who closes the tab is removed from the connected-users list and their cursor disappears for others.
@@ -191,6 +192,7 @@ A collaborator receives a board link in a group chat and clicks it. The whiteboa
 ### 8.2 Data storage & privacy
 
 - Stored data is limited to drawings, anonymous identity identifiers, and self-chosen display names; no personal data, emails, or credentials are collected.
+- Boards are public and addressable by name; there is no privacy by obscurity in the MVP, so a guessable board name can be opened by anyone (private, owned boards are a later concern).
 - Identity is an opaque server-assigned value in an HttpOnly cookie, treated as a secret and never exposed in URLs or logs.
 - The database connection string is kept outside source control (in user secrets for development).
 
@@ -246,12 +248,15 @@ A collaborator receives a board link in a group chat and clicks it. The whiteboa
 ### 10.2. Create or join a board by URL
 
 - **ID**: GH-002
-- **Description**: As an anonymous collaborator, I want to open a board by visiting its named URL so that I can start or continue a shared drawing.
+- **Description**: As an anonymous collaborator, I want to open a board by visiting its named URL — choosing a memorable name of my own or peeking at an existing public board — so that I can start or continue a shared drawing.
 - **Acceptance criteria**:
 
   - Visiting a board URL that does not yet exist creates the board and joins it.
   - Visiting a board URL that already exists joins the existing board.
+  - A collaborator can pick a memorable board name simply by typing it into the URL; the board is created on first visit and reused on later visits.
+  - Boards are public and name-addressable: anyone can open a board by typing or guessing its name (there is no privacy by name in the MVP).
   - All boards are joinable by anyone with the URL.
+  - A malformed or overly long board name in the URL is rejected or normalized rather than creating an unusable board.
   - Concurrent first-time visitors to the same new board URL all join one and the same board.
 
 ### 10.3. Draw freehand strokes
