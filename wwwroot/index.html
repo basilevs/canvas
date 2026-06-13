@@ -1,14 +1,56 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Canvas</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
 </head>
 <body>
-  <main>
-    <h1>Canvas</h1>
-    <p>The collaborative whiteboard is starting up.</p>
+  <main class="container whiteboard-shell">
+    <nav class="toolbar">
+      <form id="board-form" class="toolbar-group">
+        <label>
+          Board
+          <input id="board-input" name="board" type="text" placeholder="board-name" autocomplete="off" spellcheck="false">
+        </label>
+        <button type="submit">Switch board</button>
+      </form>
+
+      <form id="display-name-form" class="toolbar-group">
+        <label>
+          Display name
+          <input id="display-name-input" name="displayName" type="text" maxlength="30" autocomplete="nickname" placeholder="Anonymous">
+        </label>
+      </form>
+
+      <div class="toolbar-group toolbar-controls">
+        <label>
+          Color
+          <input id="color-input" type="color" value="#1e88e5">
+        </label>
+        <label>
+          Width
+          <input id="width-input" type="range" min="1" max="24" value="4">
+        </label>
+      </div>
+    </nav>
+
+    <section class="board-layout">
+      <div class="canvas-shell">
+        <canvas id="whiteboard-canvas" aria-label="Collaborative whiteboard canvas"></canvas>
+      </div>
+
+      <aside class="users-panel">
+        <h2>Connected users</h2>
+        <ul id="users-list"></ul>
+        <p id="status-text" class="status-text" aria-live="polite"></p>
+      </aside>
+    </section>
   </main>
+
+  <script type="module" src="/js/app.js"></script>
 </body>
 </html>
