@@ -1,18 +1,15 @@
 using Canvas.Models;
-using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace Canvas.Services;
 
 public interface IBoardService
 {
-    Task<Board> CreateBoardAsync(string name, CancellationToken cancellationToken);
+    Task<Board> CreateBoardAsync(string boardId, CancellationToken cancellationToken);
 
     Task<Board?> GetBoardAsync(string boardId, CancellationToken cancellationToken);
 
-    Task<Board?> GetBoardByNameAsync(string name, CancellationToken cancellationToken);
-
-    Task<Board> GetOrCreateBoardAsync(string name, CancellationToken cancellationToken);
+    Task<Board> GetOrCreateBoardAsync(string boardId, CancellationToken cancellationToken);
 
     Task UpdateLastActivityAsync(string boardId, CancellationToken cancellationToken);
 
@@ -33,17 +30,14 @@ public sealed class BoardService : IBoardService
         _boards = mongoDbContext.Boards;
     }
 
-    public async Task<Board> CreateBoardAsync(string name, CancellationToken cancellationToken)
+    public async Task<Board> CreateBoardAsync(string boardId, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            throw new ArgumentException("Board name is required.", nameof(name));
-        }
+        EnsureBoardId(boardId);
 
         var now = DateTime.UtcNow;
         var board = new Board
         {
-            Name = name,
+            Id = boardId,
             CreatedAt = now,
             LastActivityAt = now
         };
@@ -54,26 +48,16 @@ public sealed class BoardService : IBoardService
 
     public async Task<Board?> GetBoardAsync(string boardId, CancellationToken cancellationToken)
     {
-        var id = ParseBoardId(boardId);
-        return await _boards.Find(b => b.Id == id).FirstOrDefaultAsync(cancellationToken);
+        return await _boards.Find(board => board.Id == boardId).FirstOrDefaultAsync(cancellationToken);
     }
 
-    public async Task<Board?> GetBoardByNameAsync(string name, CancellationToken cancellationToken)
+    public async Task<Board> GetOrCreateBoardAsync(string boardId, CancellationToken cancellationToken)
     {
-        return await _boards.Find(b => b.Name == name).FirstOrDefaultAsync(cancellationToken);
-    }
-
-    public async Task<Board> GetOrCreateBoardAsync(string name, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            throw new ArgumentException("Board name is required.", nameof(name));
-        }
+        EnsureBoardId(boardId);
 
         var now = DateTime.UtcNow;
-        var filter = Builders<Board>.Filter.Eq(board => board.Name, name);
+        var filter = Builders<Board>.Filter.Eq(board => board.Id, boardId);
         var update = Builders<Board>.Update
-            .SetOnInsert(board => board.Name, name)
             .SetOnInsert(board => board.CreatedAt, now)
             .SetOnInsert(board => board.LastActivityAt, now)
             .SetOnInsert(board => board.ActiveStrokes, []);
@@ -89,10 +73,9 @@ public sealed class BoardService : IBoardService
 
     public async Task UpdateLastActivityAsync(string boardId, CancellationToken cancellationToken)
     {
-        var id = ParseBoardId(boardId);
         var update = Builders<Board>.Update.Set(board => board.LastActivityAt, DateTime.UtcNow);
         var result = await _boards.UpdateOneAsync(
-            board => board.Id == id,
+            board => board.Id == boardId,
             update,
             cancellationToken: cancellationToken);
 
@@ -128,9 +111,8 @@ public sealed class BoardService : IBoardService
             throw new ArgumentException("Stroke id is required.", nameof(stroke));
         }
 
-        var id = ParseBoardId(boardId);
         var filter = Builders<Board>.Filter.And(
-            Builders<Board>.Filter.Eq(board => board.Id, id),
+            Builders<Board>.Filter.Eq(board => board.Id, boardId),
             Builders<Board>.Filter.Not(
                 Builders<Board>.Filter.ElemMatch(
                     board => board.ActiveStrokes,
@@ -144,10 +126,8 @@ public sealed class BoardService : IBoardService
 
     public async Task EnsureIndexesAsync(CancellationToken cancellationToken)
     {
-        var nameIndex = new CreateIndexModel<Board>(
-            Builders<Board>.IndexKeys.Ascending(board => board.Name),
-            new CreateIndexOptions { Unique = true, Name = "ux_boards_name" });
-
+        // The canonical board name is the document _id, so it is inherently unique —
+        // no separate unique Name index is required. Only the activity TTL is created.
         var ttlIndex = new CreateIndexModel<Board>(
             Builders<Board>.IndexKeys.Ascending(board => board.LastActivityAt),
             new CreateIndexOptions
@@ -156,16 +136,14 @@ public sealed class BoardService : IBoardService
                 ExpireAfter = SnapshotRetention
             });
 
-        await _boards.Indexes.CreateManyAsync([nameIndex, ttlIndex], cancellationToken);
+        await _boards.Indexes.CreateOneAsync(ttlIndex, cancellationToken: cancellationToken);
     }
 
-    private static ObjectId ParseBoardId(string boardId)
+    private static void EnsureBoardId(string boardId)
     {
-        if (!ObjectId.TryParse(boardId, out var id))
+        if (string.IsNullOrWhiteSpace(boardId))
         {
-            throw new ArgumentException("Board id must be a valid ObjectId.", nameof(boardId));
+            throw new ArgumentException("Board id is required.", nameof(boardId));
         }
-
-        return id;
     }
 }
