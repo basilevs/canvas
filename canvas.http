@@ -1,6 +1,9 @@
 @canvas_HostAddress = http://localhost:5190
 
-GET {{canvas_HostAddress}}/weatherforecast/
+GET {{canvas_HostAddress}}/api/boards/example-board/snapshot
 Accept: application/json
 
 ###
+
+GET {{canvas_HostAddress}}/api/boards/does-not-exist/snapshot
+Accept: application/json
