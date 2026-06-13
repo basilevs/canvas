@@ -35,7 +35,7 @@ Implement the board management REST surface that is not required to draw collabo
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-001 | Create `Dtos/BoardSummaryResponse.cs` — `sealed record BoardSummaryResponse(string Name, int ActiveStrokeCount, DateTimeOffset LastActivityAt)` with `<summary>` XML doc comments. | | |
+| TASK-001 | Create `Dtos/BoardSummaryResponse.cs` — `sealed record BoardSummaryResponse(string Name, int ActiveStrokeCount, DateTime LastActivityAt)` (UTC `DateTime`, no timezone/offset) with `<summary>` XML doc comments. | | |
 | TASK-002 | Add to `IBoardService`/`BoardService`: `ListPublicBoardsAsync(CancellationToken)` returning board name + active stroke count + last activity. | | |
 | TASK-003 | Add minimal-API endpoint `GET /api/boards` — returns `200 OK` with `IReadOnlyList<BoardSummaryResponse>`; no auth; accepts and forwards `CancellationToken`; chain `.WithName("ListBoards").WithSummary(...).Produces<IReadOnlyList<BoardSummaryResponse>>(200)`. | | |
 
