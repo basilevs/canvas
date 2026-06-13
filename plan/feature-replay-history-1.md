@@ -23,7 +23,7 @@ Because replay is the sole consumer of the append-only event log, this plan also
 - **REQ-003**: Inactivity gaps exceeding a configurable threshold (default 3 seconds) are compressed/skipped during playback
 - **REQ-004**: Playback speed is adjustable: 1x, 2x, 4x multipliers
 - **REQ-005**: VCR controls: play, pause, seek (timeline scrubber), stop (exit replay)
-- **REQ-006**: Replay respects the requesting user's visibility permissions — non-owner members see history filtered by HiddenRanges; owner can replay full unfiltered history
+- **REQ-006**: This plan serves the **complete unfiltered** stroke history to board members; owner-controlled visibility filtering of replay (HiddenRanges cut-offs) is a separate concern layered on by [feature-history-cutoff-moderation-1.md](./feature-history-cutoff-moderation-1.md)
 - **REQ-007**: Replay data is fetched from a dedicated REST endpoint, paginated for large boards
 - **REQ-008**: This plan introduces the append-only event log: every accepted stroke is recorded as an `Add` `StrokeEvent` (with `Timestamp`, monotonically increasing per-board `SequenceNumber`, and the embedded stroke's temporal metadata) so that history can be replayed
 - **CON-001**: Frontend is vanilla JavaScript on HTML5 Canvas (no framework)
@@ -31,7 +31,7 @@ Because replay is the sole consumer of the append-only event log, this plan also
 - **CON-003**: `StrokeEvent` documents carry `Timestamp`, `SequenceNumber`, `Stroke.Duration`, and `Stroke.Points[].TimeOffset`; these document and the `Stroke`/`Point` temporal fields are reused from the MVP data model, but the event log document and persistence are introduced by this plan (Phase 0)
 - **DEP-001**: `Services/StrokeEventService.cs` — introduced by this plan (Phase 0); provides `GetEventsAsync(boardName)` and filtered event queries
 - **DEP-002**: Depends on `Middleware/UserIdentityMiddleware.cs` for userId resolution on REST requests
-- **DEP-003**: Depends on `Services/BoardService.cs` providing `GetHiddenRangesAsync(boardId)` and ownership checks
+- **DEP-003**: Depends on `Services/BoardService.cs` providing `IsMemberAsync(boardName, userId)` for member-access enforcement on the history endpoint (membership model introduced by [feature-board-administration-1.md](./feature-board-administration-1.md))
 
 ## 2. Implementation Steps
 
@@ -55,10 +55,10 @@ Because replay is the sole consumer of the append-only event log, this plan also
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
 | TASK-001 | Add REST endpoint `GET /api/boards/{name}/history` in `Program.cs` with query parameters: `userId` (string, resolved from cookie), `page` (int, default 1), `pageSize` (int, default 100, max 500). Route: `app.MapGet("/api/boards/{name}/history", ...)` | | |
-| TASK-002 | Implement endpoint handler: resolve userId from `HttpContext.Items["UserId"]`, verify membership via `BoardService.IsMemberAsync`, return 403 if unauthorized. Fetch board to determine ownership and HiddenRanges. | | |
-| TASK-003 | If caller is owner: return all StrokeEvents ordered by SequenceNumber, paginated. If caller is non-owner member: filter out events where `event.Stroke.UserId` matches a HiddenRange entry AND `event.Timestamp <= hiddenRange.HiddenBefore`. | | |
+| TASK-002 | Implement endpoint handler: resolve userId from `HttpContext.Items["UserId"]`, verify membership via `BoardService.IsMemberAsync`, return 403 if unauthorized. Fetch the board. | | |
+| TASK-003 | Return all StrokeEvents for the board ordered by SequenceNumber, paginated. Note: owner-controlled HiddenRanges filtering for non-owner members is layered onto this handler by [feature-history-cutoff-moderation-1.md](./feature-history-cutoff-moderation-1.md); on its own this plan serves the unfiltered history to any member. | | |
 | TASK-004 | Return JSON response: `{ "events": [...], "page": 1, "pageSize": 100, "totalEvents": N, "totalPages": M }`. Each event includes: `id`, `type` (Add/Remove), `stroke` (with points, color, width, duration), `timestamp`, `sequenceNumber`. | | |
-| TASK-005 | Add integration test `Tests/ReplayHistoryEndpointTests.cs`: verify pagination, verify HiddenRanges filtering for non-owner, verify owner receives unfiltered history, verify 403 for non-members. | | |
+| TASK-005 | Add integration test `Tests/ReplayHistoryEndpointTests.cs`: verify pagination metadata and verify 403 for non-members. (HiddenRanges filtering tests live in [feature-history-cutoff-moderation-1.md](./feature-history-cutoff-moderation-1.md).) | | |
 
 ### Implementation Phase 2
 
@@ -99,23 +99,22 @@ Because replay is the sole consumer of the append-only event log, this plan also
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
 | TASK-024 | Unit test `Tests/ReplayEngineTests.js` (or inline in HTML test page): verify `computeTimeline()` compresses gaps > 3s, verify totalDurationMs is correct, verify seek renders correct state at midpoint. | | |
-| TASK-025 | Integration test `Tests/ReplayHistoryEndpointTests.cs`: verify endpoint returns events with correct pagination metadata, verify HiddenRanges filtering excludes correct events, verify owner sees all events. | | |
+| TASK-025 | Integration test `Tests/ReplayHistoryEndpointTests.cs`: verify the endpoint returns events with correct pagination metadata and that members receive the complete history. (HiddenRanges filtering tests live in [feature-history-cutoff-moderation-1.md](./feature-history-cutoff-moderation-1.md).) | | |
 | TASK-026 | Manual test — Draw 5 strokes with 10+ second pauses between some. Click replay. Verify inactivity gaps are compressed, strokes animate point-by-point, total replay duration is much shorter than real elapsed time. | | |
 | TASK-027 | Manual test — During replay, click pause, move scrubber to 50%, resume. Verify canvas shows correct state at midpoint and continues animating from there. | | |
 | TASK-028 | Manual test — Change speed from 1x to 4x during playback. Verify animation speeds up smoothly without jumping. | | |
-| TASK-029 | Manual test — As non-owner on a board with hidden contributions: trigger replay. Verify hidden user's strokes do NOT appear in the replay. As owner, verify they DO appear. | | |
 
 ## 3. Alternatives
 
 - **ALT-001**: Server-side video rendering (FFmpeg) to produce MP4 — rejected; adds heavy server dependency, eliminates interactivity (seek/pause), and increases infrastructure cost
 - **ALT-002**: WebGL-based canvas rendering for replay — rejected; raw Canvas 2D API is sufficient for stroke replay and avoids WebGL complexity for a drawing app
 - **ALT-003**: Stream events via SignalR during replay instead of REST fetch — rejected; REST with pagination is simpler, cacheable, and doesn't tie up a WebSocket for a read-only operation
-- **ALT-004**: Store pre-computed replay timeline in MongoDB — rejected; timeline computation is lightweight (client-side) and storing it would create stale data on every undo/hide operation
+- **ALT-004**: Store pre-computed replay timeline in MongoDB — rejected; timeline computation is lightweight (client-side) and storing it would create stale data on every hide operation
 
 ## 4. Dependencies
 
 - **DEP-001**: `Services/StrokeEventService.cs` — introduced by this plan (Phase 0); provides `GetEventsAsync(boardName)` returning all events ordered by SequenceNumber
-- **DEP-002**: `Services/BoardService.cs` — provides `GetHiddenRangesAsync(boardId)`, `IsMemberAsync(boardId, userId)`, ownership check
+- **DEP-002**: `Services/BoardService.cs` — provides `IsMemberAsync(boardName, userId)` for member-access enforcement on the history endpoint (membership model per [feature-board-administration-1.md](./feature-board-administration-1.md))
 - **DEP-003**: `Middleware/UserIdentityMiddleware.cs` — resolves userId from HttpOnly cookie on REST requests
 - **DEP-004**: `Models/StrokeEvent.cs` — introduced by this plan (Phase 0); document with `Type`, `Stroke` (containing `Points[].TimeOffset`, `Duration`), `Timestamp`, `SequenceNumber`
 - **DEP-005**: `Models/Point.cs` — must include `TimeOffset` (long, milliseconds since stroke start)
@@ -127,29 +126,35 @@ Because replay is the sole consumer of the append-only event log, this plan also
 - **FILE-003**: `wwwroot/index.html` — Add replay button to toolbar, add replay overlay HTML (scrubber, controls, time display)
 - **FILE-004**: `wwwroot/css/style.css` — Add replay overlay styles (positioned over canvas, control bar at bottom)
 - **FILE-005**: `Tests/ReplayHistoryEndpointTests.cs` — Integration tests for the history REST endpoint
+- **FILE-006**: `Models/StrokeEvent.cs` — Append-only event log document introduced by this plan (Phase 0); `Type` (Add/Remove), embedded `Stroke`, `Timestamp`, per-board `SequenceNumber`
+- **FILE-007**: `Services/StrokeEventService.cs` (+ `IStrokeEventService`) — Event append and query operations (Phase 0); registered in DI in `Program.cs`
+- **FILE-008**: `Services/MongoDbContext.cs` — Add the `StrokeEvents` collection accessor (extends the MVP context) and the `StrokeEvents` indexes (Phase 0)
+- **FILE-009**: `Hubs/WhiteboardHub.cs` — Layer `StrokeEventService.AppendEventAsync(..., EventType.Add, ...)` onto the core `SendStroke` method (Phase 0)
+- **FILE-010**: `Tests/StrokeEventServiceTests.cs` — Integration tests for the event log (relocated from the MVP; exercises a test database)
 
 ## 6. Testing
 
 - **TEST-001**: Integration test — `GET /api/boards/{name}/history` returns paginated events with correct `totalPages` and `totalEvents` counts
 - **TEST-002**: Integration test — Non-member receives 403 from history endpoint
-- **TEST-003**: Integration test — Non-owner member receives history filtered by HiddenRanges (hidden user's events before cut-off are excluded)
-- **TEST-004**: Integration test — Owner receives complete unfiltered history regardless of HiddenRanges
 - **TEST-005**: Unit test — `computeTimeline()` with events [t=0s, t=1s, t=15s, t=16s] compresses the 14s gap to 3s, resulting in totalDuration = 0 + 1 + 3 + 1 = 5s of playback
 - **TEST-006**: Unit test — `seek(0.5)` on a timeline with 4 strokes renders exactly the first 2 strokes completely
-- **TEST-007**: Manual test — Full replay with gap compression behaves as described in Phase 4 TASK-026–029
+- **TEST-007**: Manual test — Full replay with gap compression behaves as described in Phase 4 TASK-026–028
+- **TEST-008**: Integration test — `StrokeEventService.AppendEventAsync` assigns incrementing per-board sequence numbers and `GetEventsAsync` returns events ordered by `SequenceNumber` (Phase 0 event log)
 
 ## 7. Risks & Assumptions
 
 - **RISK-001**: Very large boards (10,000+ events) may cause slow initial fetch — mitigated by pagination and potential future streaming/chunked loading
 - **RISK-002**: `requestAnimationFrame` timing inconsistencies across browsers may cause slight playback drift — mitigated by using `performance.now()` for elapsed time rather than frame counting
 - **RISK-003**: Seek to arbitrary position requires re-rendering all prior strokes (O(n) for n events before seek point) — acceptable for demo scale; could be optimized with periodic snapshots for very large boards
-- **ASSUMPTION-001**: StrokeEvent documents already contain `Timestamp` and `Stroke.Points[].TimeOffset` populated by the main whiteboard implementation
+- **ASSUMPTION-001**: The `Stroke`/`Point` temporal fields (`Timestamp`, `Points[].TimeOffset`) are populated by the MVP whiteboard implementation; this plan's Phase 0 records them into `StrokeEvent` documents
 - **ASSUMPTION-002**: Canvas 2D context can be cleared and re-rendered fast enough for seek operations (target: <100ms for 1000 strokes)
 - **ASSUMPTION-003**: Replay is read-only — drawing tools are disabled during playback and re-enabled on stop
 
 ## 8. Related Specifications / Further Reading
 
 - [Main whiteboard implementation plan](./feature-collaborative-whiteboard-1.md) — parent plan containing data model, SignalR hub, and persistence layer
+- [History cut-off moderation feature plan](./feature-history-cutoff-moderation-1.md) — layers owner-controlled HiddenRanges filtering onto the history endpoint defined here
+- [Visibility moderation feature plan](./feature-visibility-moderation-1.md) — the live-snapshot counterpart of cut-off moderation; defines the HiddenRange model reused for history filtering
 - [requestAnimationFrame documentation](https://developer.mozilla.org/en-US/docs/Web/API/window/requestAnimationFrame)
 - [Canvas 2D API — Path2D and drawing](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D)
 - [performance.now() for high-resolution timing](https://developer.mozilla.org/en-US/docs/Web/API/Performance/now)
