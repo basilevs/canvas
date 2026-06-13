@@ -1,4 +1,5 @@
 using Canvas.Dtos;
+using Canvas.Hubs;
 using Canvas.Models;
 using Canvas.Services;
 using Microsoft.AspNetCore.SignalR;
@@ -50,7 +51,7 @@ public sealed class WhiteboardHubTests
         Assert.AreEqual(stroke.Id, group.Strokes[0].Id);
     }
 
-    private static TestWhiteboardHub CreateHub(
+    private static WhiteboardHub CreateHub(
         out TestWhiteboardClient caller,
         out TestWhiteboardClient group,
         out InMemoryBoardService boardService,
@@ -65,8 +66,12 @@ public sealed class WhiteboardHubTests
         context = new TestHubCallerContext("conn-" + Guid.NewGuid().ToString("N"), "user-1");
         groups = new TestGroupManager();
 
-        var hub = new TestWhiteboardHub(boardService, userProfileService);
-        hub.Initialize(context, new TestHubCallerClients(caller, group), groups);
+        var hub = new WhiteboardHub(boardService, userProfileService)
+        {
+            Context = context,
+            Clients = new TestHubCallerClients(caller, group),
+            Groups = groups
+        };
         return hub;
     }
 }

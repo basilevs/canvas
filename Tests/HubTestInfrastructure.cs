@@ -10,21 +10,6 @@ using System.Security.Claims;
 
 namespace Canvas.Tests;
 
-internal sealed class TestWhiteboardHub : WhiteboardHub
-{
-    public TestWhiteboardHub(IBoardService boardService, IUserProfileService userProfileService)
-        : base(boardService, userProfileService)
-    {
-    }
-
-    public void Initialize(HubCallerContext context, IHubCallerClients<IWhiteboardClient> clients, IGroupManager groups)
-    {
-        Context = context;
-        Clients = clients;
-        Groups = groups;
-    }
-}
-
 internal sealed class TestHubCallerContext : HubCallerContext
 {
     private readonly DefaultHttpContext _httpContext;
@@ -55,7 +40,6 @@ internal sealed class TestHubCallerContext : HubCallerContext
     {
         _cancellationTokenSource.Cancel();
     }
-
 }
 
 internal sealed class TestGroupManager : IGroupManager

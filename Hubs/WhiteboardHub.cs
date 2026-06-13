@@ -6,7 +6,7 @@ using System.Collections.Concurrent;
 
 namespace Canvas.Hubs;
 
-public class WhiteboardHub : Hub<IWhiteboardClient>
+public sealed class WhiteboardHub : Hub<IWhiteboardClient>
 {
     private static readonly ConcurrentDictionary<string, UserConnection> Connections = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<string, DateTime> LastActivityRefreshes = new(StringComparer.Ordinal);

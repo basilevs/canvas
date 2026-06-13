@@ -33,7 +33,7 @@ public sealed class DisplayNameTests
         await AssertHubExceptionAsync(() => hub.SetDisplayName(new string('x', 31)));
     }
 
-    private static TestWhiteboardHub CreateHub(
+    private static WhiteboardHub CreateHub(
         out TestWhiteboardClient caller,
         out TestWhiteboardClient group,
         out InMemoryBoardService boardService,
@@ -48,8 +48,12 @@ public sealed class DisplayNameTests
         context = new TestHubCallerContext("conn-" + Guid.NewGuid().ToString("N"), "user-1");
         groups = new TestGroupManager();
 
-        var hub = new TestWhiteboardHub(boardService, userProfileService);
-        hub.Initialize(context, new TestHubCallerClients(caller, group), groups);
+        var hub = new WhiteboardHub(boardService, userProfileService)
+        {
+            Context = context,
+            Clients = new TestHubCallerClients(caller, group),
+            Groups = groups
+        };
         return hub;
     }
 
