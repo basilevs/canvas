@@ -12,7 +12,7 @@ tags: [feature, access-control, administration, signalr, mongodb]
 
 ![Status: On Hold](https://img.shields.io/badge/status-On_Hold-orange)
 
-Implement the board owner's administration capabilities layered on top of the core membership model: generating single-use invite links, delegating invite creation to members, toggling board visibility between public and private, removing members (with immediate disconnection), and forcing a member's visible pseudonym. These controls govern who may access a board, how new members are admitted, and how members are presented. Core ownership establishment (first accessor becomes owner) and the membership primitives (`AddMemberAsync`, `IsMemberAsync`, `GetOrCreateBoardAsync`, `GetMembersWithNamesAsync`) plus self-chosen display names are provided by the parent whiteboard plan.
+Implement the board owner's administration capabilities, including the underlying ownership and membership model that the MVP intentionally omits: establishing board ownership (first accessor becomes owner), persisted membership (`Board.Members`/`BoardMember`), generating single-use invite links, delegating invite creation to members, toggling board visibility between public and private, removing members (with immediate disconnection), and forcing a member's visible pseudonym. These controls govern who owns a board, who may access it, how new members are admitted, and how members are presented. The parent whiteboard MVP plan provides only the core `GetOrCreateBoardAsync` (board creation), server-assigned identity, and self-chosen display names; this plan adds ownership, membership, and the primitives (`AddMemberAsync`, `IsMemberAsync`, `GetMembersWithNamesAsync`) on top.
 
 > **Scope: post-MVP enhancement.** This feature is intentionally excluded from the MVP ([feature-collaborative-whiteboard-1.md](./feature-collaborative-whiteboard-1.md)). In the MVP, boards are public (anyone with the URL can join); this plan adds the private/invite-only access model on top.
 
@@ -28,8 +28,8 @@ Implement the board owner's administration capabilities layered on top of the co
 - **CON-002**: The owner cannot be removed from their own board
 - **CON-003**: Invite tokens are cryptographically random, URL-safe, and single-use (atomic redemption)
 - **CON-004**: Backend is ASP.NET Core 10.0 with MongoDB Atlas; real-time via SignalR
-- **DEP-001**: Depends on `Models/Board.cs` providing `OwnerId`, `IsPublic`, `MembersCanInvite`, and `Members` (with the `BoardMember` value object)
-- **DEP-002**: Depends on core `BoardService` membership primitives: `GetOrCreateBoardAsync`, `AddMemberAsync`, `IsMemberAsync`, and `GetMembersWithNamesAsync`
+- **DEP-001**: Adds the ownership/membership fields to `Models/Board.cs` — `OwnerId`, `IsPublic`, `MembersCanInvite`, and `Members` (with the `BoardMember` value object); the MVP `Board` model has none of these
+- **DEP-002**: Adds the membership primitives to `Services/BoardService.cs` (`AddMemberAsync`, `IsMemberAsync`, `GetMembersWithNamesAsync`) and owner establishment to `GetOrCreateBoardAsync`; depends only on the MVP's core `GetOrCreateBoardAsync` (board creation) as the extension point
 - **DEP-003**: Depends on `Hubs/WhiteboardHub.cs` for server-assigned identity and the core `JoinBoard` flow
 - **DEP-004**: Depends on `Services/MongoDbContext.cs` exposing the `Invites` collection
 - **DEP-005**: Depends on `Services/UserProfileService.cs` for resolving a member's self-chosen `DisplayName` when an override is cleared
@@ -40,10 +40,11 @@ Implement the board owner's administration capabilities layered on top of the co
 
 ### Implementation Phase 1
 
-- GOAL-001: Implement the invite data model, invite service, and board administration service methods
+- GOAL-001: Implement the ownership/membership model foundation, invite data model, invite service, and board administration service methods
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
+| TASK-035 | Introduce the ownership/membership model that the MVP omits: create `Models/BoardMember.cs` (`UserId`; `ForcedName` is added in Phase 5 / TASK-024); add `OwnerId` (string), `IsPublic` (bool, default true), `MembersCanInvite` (bool, default false), and `Members` (List<BoardMember>) to `Models/Board.cs`; extend `GetOrCreateBoardAsync` so the first caller is recorded as owner and member; add membership primitives to `Services/BoardService.cs` — `AddMemberAsync(boardId, userId)`, `IsMemberAsync(boardId, userId)`, `GetMembersWithNamesAsync(boardId)` (members with their `UserProfile.DisplayName`); and update the core `JoinBoard` hub flow to add the caller as a member and source the "members" list from `Members` instead of live presence. | | |
 | TASK-001 | Create `Models/Invite.cs` — properties: `Id` (ObjectId), `BoardId` (string), `Token` (string, unique random URL-safe token), `CreatedBy` (string, UUID), `CreatedAt` (DateTime), `UsedBy` (string?, UUID of user who redeemed), `UsedAt` (DateTime?), `IsUsed` (bool, default false). Single-use: once redeemed, cannot be used again. | | |
 | TASK-002 | Create `Services/InviteService.cs` — methods: `CreateInviteAsync(boardId, createdByUserId)` (generates cryptographic random token via `RandomNumberGenerator`), `RedeemInviteAsync(token, userId)` (atomic `findOneAndUpdate`: mark used + return boardId, fail if already used), `GetPendingInvitesAsync(boardId)`. | | |
 | TASK-003 | Add administration methods to `Services/BoardService.cs`: `SetPublicAsync(boardId, isPublic)`, `SetMembersCanInviteAsync(boardId, canInvite)`, `RemoveMemberAsync(boardId, userId)` (no-op/guard if userId is the owner). | | |
@@ -63,7 +64,7 @@ Implement the board owner's administration capabilities layered on top of the co
 | TASK-010 | Implement `RemoveMember(boardName, targetUserId)`: verify caller is owner AND target is not owner. Call `BoardService.RemoveMemberAsync`. Find target's connections via the connection-tracking dictionary, force-disconnect them from the group, send `Kicked` event to target's connections. Broadcast `UserRemoved(targetUserId)` to group. | | |
 | TASK-011 | Add a connection-tracking dictionary (userId → set of connection ids) maintained in `OnConnectedAsync`/`OnDisconnectedAsync` (or a shared singleton) so `RemoveMember` can locate and disconnect a target's connections. | | |
 | TASK-012 | Ensure the core `JoinBoard` flow enforces private-board access: if board `IsPublic` is false, reject non-members with `AccessDenied`; if public, auto-add as member. (This enforcement is the consumer of REQ-003 and lives in the core hub.) | | |
-| TASK-031 | Layer member-access enforcement onto the core `SendStroke` hub method (`Hubs/WhiteboardHub.cs`): before validating/persisting the stroke, verify the caller is a member via `BoardService.IsMemberAsync(boardId, userId)`; reject non-members (e.g. a removed member, or a non-member on a private board) with `AccessDenied` and neither persist nor broadcast the stroke. (In the MVP every joiner is auto-added as a member, so this guard never rejects; it becomes meaningful once boards can be private or members can be removed.) | | |
+| TASK-031 | Layer member-access enforcement onto the core `SendStroke` hub method (`Hubs/WhiteboardHub.cs`): before validating/persisting the stroke, verify the caller is a member via `BoardService.IsMemberAsync(boardId, userId)`; reject non-members (e.g. a removed member, or a non-member on a private board) with `AccessDenied` and neither persist nor broadcast the stroke. (This guard relies on the membership model introduced by TASK-035; it becomes meaningful once boards can be private or members can be removed.) | | |
 | TASK-032 | Layer member-access enforcement onto the core `UndoLastStroke` hub method (`Hubs/WhiteboardHub.cs`): verify the caller is a member via `BoardService.IsMemberAsync(boardId, userId)` before querying/removing their last stroke; reject non-members with `AccessDenied`. | | |
 | TASK-033 | Layer private-board access enforcement onto the core REST snapshot endpoint `GET /api/boards/{name}/snapshot`: for private boards (`IsPublic` is false), require a `userId` and verify membership via `BoardService.IsMemberAsync(boardId, userId)`, returning `403 Forbidden` for non-members; public boards remain open. | | |
 
@@ -117,8 +118,8 @@ Implement the board owner's administration capabilities layered on top of the co
 
 ## 4. Dependencies
 
-- **DEP-001**: `Models/Board.cs` — `OwnerId`, `IsPublic`, `MembersCanInvite`, `Members` (`BoardMember` value object)
-- **DEP-002**: `Services/BoardService.cs` — core membership primitives (`GetOrCreateBoardAsync`, `AddMemberAsync`, `IsMemberAsync`, `GetMembersWithNamesAsync`)
+- **DEP-001**: `Models/Board.cs` — adds `OwnerId`, `IsPublic`, `MembersCanInvite`, `Members` (`BoardMember` value object) to the MVP model
+- **DEP-002**: `Services/BoardService.cs` — adds membership primitives (`AddMemberAsync`, `IsMemberAsync`, `GetMembersWithNamesAsync`) and owner establishment; extends the MVP's `GetOrCreateBoardAsync`
 - **DEP-003**: `Services/MongoDbContext.cs` — `Invites` collection accessor
 - **DEP-004**: `Hubs/WhiteboardHub.cs` — server-assigned identity, core `JoinBoard`, `SendStroke`, `UndoLastStroke`, `SetDisplayName`, group broadcasting
 - **DEP-005**: `Services/UserProfileService.cs` — resolve a member's self-chosen `DisplayName` when an override is cleared
@@ -128,9 +129,10 @@ Implement the board owner's administration capabilities layered on top of the co
 
 - **FILE-001**: `Models/Invite.cs` — Single-use invite token document
 - **FILE-002**: `Services/InviteService.cs` — Invite creation, atomic redemption, pending invite queries
-- **FILE-003**: `Services/BoardService.cs` — Add `SetPublicAsync`, `SetMembersCanInviteAsync`, `RemoveMemberAsync`, `SetForcedNameAsync`, `ClearForcedNameAsync`; update `GetMembersWithNamesAsync` resolution
-- **FILE-004**: `Models/BoardMember.cs` — Add `ForcedName` (owner-assigned pseudonym override)
-- **FILE-005**: `Hubs/WhiteboardHub.cs` — Add `JoinBoardWithInvite`, `CreateInvite`, `SetPublic`, `SetMembersCanInvite`, `RemoveMember`, `SetForcedName`, `ClearForcedName`, connection tracking, and member-access guards on the core `SendStroke`/`UndoLastStroke` methods
+- **FILE-003**: `Services/BoardService.cs` — Add owner establishment + membership primitives (`AddMemberAsync`, `IsMemberAsync`, `GetMembersWithNamesAsync`, owner in `GetOrCreateBoardAsync`) and `SetPublicAsync`, `SetMembersCanInviteAsync`, `RemoveMemberAsync`, `SetForcedNameAsync`, `ClearForcedNameAsync`
+- **FILE-004**: `Models/BoardMember.cs` — Create the embedded member value object (`UserId`; `ForcedName` owner-assigned pseudonym override)
+- **FILE-016**: `Models/Board.cs` — Add ownership/membership fields (`OwnerId`, `IsPublic`, `MembersCanInvite`, `Members`) to the MVP model
+- **FILE-005**: `Hubs/WhiteboardHub.cs` — Update core `JoinBoard` to add the caller as a member; add `JoinBoardWithInvite`, `CreateInvite`, `SetPublic`, `SetMembersCanInvite`, `RemoveMember`, `SetForcedName`, `ClearForcedName`, connection tracking, and member-access guards on the core `SendStroke`/`UndoLastStroke` methods
 - **FILE-006**: `wwwroot/js/admin.js` — Owner settings panel (invites, public/private, member removal, forced names)
 - **FILE-007**: `wwwroot/js/connection.js` — Register `BoardSettingsChanged`/`UserRemoved`/`Kicked`/`AccessDenied`/`InvalidInvite` handlers
 - **FILE-008**: `wwwroot/js/app.js` — Invite URL detection and kick handling
@@ -140,7 +142,7 @@ Implement the board owner's administration capabilities layered on top of the co
 - **FILE-012**: `Tests/BoardAdminTests.cs` — Owner-only control enforcement tests
 - **FILE-013**: `Tests/ForcedNameTests.cs` — Owner-forced pseudonym integration tests
 - **FILE-014**: `Tests/MemberAccessTests.cs` — Member-access enforcement tests for `SendStroke`, `UndoLastStroke`, and the REST snapshot endpoint
-- **FILE-015**: REST snapshot endpoint controller (e.g. `Controllers/BoardsController.cs` from the parent plan) — Add private-board membership enforcement to `GET /api/boards/{name}/snapshot`
+- **FILE-015**: The minimal-API board snapshot endpoint `GET /api/boards/{name}/snapshot` (from the parent plan) — Add private-board membership enforcement
 
 ## 6. Testing
 
