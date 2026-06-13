@@ -14,6 +14,8 @@ tags: [feature, replay, history, animation, frontend, rest-api]
 
 Implement a video-like replay system that allows users to watch the board's drawing history animated chronologically. The replay skips periods of inactivity (configurable threshold), animates individual strokes point-by-point using stored temporal metadata, and provides VCR-style playback controls.
 
+Because replay is the sole consumer of the append-only event log, this plan also **introduces** that foundation (relocated out of the MVP, which persists only the live `Board.ActiveStrokes` snapshot): the `StrokeEvent` document, `StrokeEventService`, the `StrokeEvents` collection + indexes, and the layering of event-append onto the core hub `SendStroke`. See [feature-collaborative-whiteboard-1.md](./feature-collaborative-whiteboard-1.md) for the MVP that this builds upon.
+
 ## 1. Requirements & Constraints
 
 - **REQ-001**: Users can trigger a replay mode that animates the board's stroke history in chronological order
@@ -23,14 +25,28 @@ Implement a video-like replay system that allows users to watch the board's draw
 - **REQ-005**: VCR controls: play, pause, seek (timeline scrubber), stop (exit replay)
 - **REQ-006**: Replay respects the requesting user's visibility permissions — non-owner members see history filtered by HiddenRanges; owner can replay full unfiltered history
 - **REQ-007**: Replay data is fetched from a dedicated REST endpoint, paginated for large boards
+- **REQ-008**: This plan introduces the append-only event log: every accepted stroke is recorded as an `Add` `StrokeEvent` (with `Timestamp`, monotonically increasing per-board `SequenceNumber`, and the embedded stroke's temporal metadata) so that history can be replayed
 - **CON-001**: Frontend is vanilla JavaScript on HTML5 Canvas (no framework)
 - **CON-002**: Backend is ASP.NET Core 10.0 with MongoDB Atlas
-- **CON-003**: StrokeEvent documents already exist with `Timestamp`, `SequenceNumber`, `Stroke.Duration`, and `Stroke.Points[].TimeOffset` fields (provided by the main whiteboard plan)
-- **DEP-001**: Depends on `Services/StrokeEventService.cs` providing `GetEventsAsync(boardId)` and filtered event queries
+- **CON-003**: `StrokeEvent` documents carry `Timestamp`, `SequenceNumber`, `Stroke.Duration`, and `Stroke.Points[].TimeOffset`; these document and the `Stroke`/`Point` temporal fields are reused from the MVP data model, but the event log document and persistence are introduced by this plan (Phase 0)
+- **DEP-001**: `Services/StrokeEventService.cs` — introduced by this plan (Phase 0); provides `GetEventsAsync(boardName)` and filtered event queries
 - **DEP-002**: Depends on `Middleware/UserIdentityMiddleware.cs` for userId resolution on REST requests
 - **DEP-003**: Depends on `Services/BoardService.cs` providing `GetHiddenRangesAsync(boardId)` and ownership checks
 
 ## 2. Implementation Steps
+
+### Implementation Phase 0
+
+- GOAL-000: Introduce the append-only event log foundation (relocated from the MVP) that records every stroke for later replay
+
+| Task | Description | Completed | Date |
+|------|-------------|-----------|------|
+| TASK-030 | Create `Models/StrokeEvent.cs` — append-only event document: `Id` (`ObjectId`), `BoardName` (string), `Type` (enum `EventType { Add, Remove }`), `Stroke` (embedded `Stroke`, reusing the MVP model with its `Duration`/`Points[].TimeOffset` temporal metadata), `Timestamp` (`DateTimeOffset`), `SequenceNumber` (long, monotonically increasing per board). Note: `Remove` events are only produced if an undo/erase feature is later added — the MVP and this plan produce only `Add` events. | | |
+| TASK-031 | Add a `StrokeEvents` typed collection accessor to `Services/MongoDbContext.cs` (and `IMongoDbContext`), extending the MVP context which exposes only `Boards` and `Users`. | | |
+| TASK-032 | Create `Services/StrokeEventService.cs` (and `IStrokeEventService`) with: `AppendEventAsync(boardName, EventType type, Stroke stroke)` (assigns the next per-board `SequenceNumber` and `Timestamp`, inserts the document), `GetEventsAsync(boardName)` (all events ordered by `SequenceNumber`), `GetRecentEventsAsync(boardName, count)`, and `GetEventsSinceAsync(boardName, sinceSequenceNumber)`. Register `IStrokeEventService` in DI in `Program.cs`. | | |
+| TASK-033 | Create MongoDB indexes for `StrokeEvents`: a unique compound index `{ BoardName: 1, SequenceNumber: 1 }` and a query index `{ BoardName: 1, Timestamp: 1 }` (these were noted as deferred in the MVP TASK-022). | | |
+| TASK-034 | Layer append-only persistence onto the core hub `SendStroke` (MVP TASK-026): after the stroke is added to the board's `ActiveStrokes` snapshot and broadcast, call `StrokeEventService.AppendEventAsync(boardName, EventType.Add, stroke)`. This is the only producer of events in scope. | | |
+| TASK-035 | Add MSTest integration tests for the event log in `Tests/StrokeEventServiceTests.cs` (relocated from the MVP): verify `AppendEventAsync` assigns incrementing per-board sequence numbers and that `GetEventsAsync` returns events ordered by `SequenceNumber`. Exercises a MongoDB test database. | | |
 
 ### Implementation Phase 1
 
@@ -98,10 +114,10 @@ Implement a video-like replay system that allows users to watch the board's draw
 
 ## 4. Dependencies
 
-- **DEP-001**: `Services/StrokeEventService.cs` — provides `GetEventsAsync(boardId)` returning all events ordered by SequenceNumber
+- **DEP-001**: `Services/StrokeEventService.cs` — introduced by this plan (Phase 0); provides `GetEventsAsync(boardName)` returning all events ordered by SequenceNumber
 - **DEP-002**: `Services/BoardService.cs` — provides `GetHiddenRangesAsync(boardId)`, `IsMemberAsync(boardId, userId)`, ownership check
 - **DEP-003**: `Middleware/UserIdentityMiddleware.cs` — resolves userId from HttpOnly cookie on REST requests
-- **DEP-004**: `Models/StrokeEvent.cs` — document with `Type`, `Stroke` (containing `Points[].TimeOffset`, `Duration`), `Timestamp`, `SequenceNumber`
+- **DEP-004**: `Models/StrokeEvent.cs` — introduced by this plan (Phase 0); document with `Type`, `Stroke` (containing `Points[].TimeOffset`, `Duration`), `Timestamp`, `SequenceNumber`
 - **DEP-005**: `Models/Point.cs` — must include `TimeOffset` (long, milliseconds since stroke start)
 
 ## 5. Files
