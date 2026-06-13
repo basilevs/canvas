@@ -84,7 +84,7 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
 | TASK-023 | Create `Hubs/WhiteboardHub.cs` implementing `Hub` — all methods resolve userId from `Context.GetHttpContext().Items["UserId"]` (server-assigned, never from client). Methods: `JoinBoard(boardName)`, `LeaveBoard(boardName)`, `SendStroke(boardName, strokeData)`, `UndoLastStroke(boardName)`, `SetDisplayName(name)`. Note: administration methods `JoinBoardWithInvite`/`CreateInvite`/`SetPublic`/`SetMembersCanInvite`/`RemoveMember` plus forced-name overrides `SetForcedName`/`ClearForcedName` are in [feature-board-administration-1.md](./feature-board-administration-1.md); `HideContributions`/`RestoreContributions`/`ToggleShowHidden` are in [feature-visibility-moderation-1.md](./feature-visibility-moderation-1.md) | | |
-| TASK-024 | Implement `JoinBoard`: read userId from context, call `UserProfileService.GetOrCreateProfileAsync(userId)`, call `GetOrCreateBoardAsync(name, userId)` (first caller becomes owner+member). If board is private, verify `IsMemberAsync` — reject with `AccessDenied`. If public, auto-add as member. Send snapshot + member list with display names to caller, broadcast `UserJoined(userId, displayName)` to group. | | |
+| TASK-024 | Implement `JoinBoard`: read userId from context, call `UserProfileService.GetOrCreateProfileAsync(userId)`, call `GetOrCreateBoardAsync(name, userId)` (creates the board if absent; first caller is recorded as owner per REQ-007), add the caller as a member and join the board's SignalR group, send the snapshot + member list with display names to the caller, broadcast `UserJoined(userId, displayName)` to the group. Note: private-board access enforcement (reject non-members with `AccessDenied`) is layered onto this flow by [feature-board-administration-1.md](./feature-board-administration-1.md) and does not apply in the MVP, where all boards are public. | | |
 | TASK-026 | Implement `SendStroke`: verify caller is a member, validate stroke data, add to snapshot, append event, broadcast to group | | |
 | TASK-027 | Implement `UndoLastStroke`: verify caller is a member, query recent events for last `Add` by caller, remove from snapshot, append `Remove` event, broadcast `StrokeRemoved(strokeId)` | | |
 | TASK-035 | Implement `SetDisplayName(name)`: any user can call. Validate name (non-empty, max 30 chars). Call `UserProfileService.SetDisplayNameAsync(userId, name)`. Broadcast `UserRenamed(userId, name)` to all groups the user is in. | | |
@@ -122,9 +122,9 @@ Technology demonstrator of ASP.NET Core and MongoDB implementing a collaborative
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-042 | Create `README.md` with: project overview, architecture diagram (text), prerequisites (dotnet 10 SDK, Atlas account), setup instructions (user-secrets configuration), usage guide, invite flow explanation | | |
+| TASK-042 | Create `README.md` with: project overview, architecture diagram (text), prerequisites (dotnet 10 SDK, Atlas account), setup instructions (user-secrets configuration), and usage guide | | |
 | TASK-043 | Add `.gitignore` entries to ensure user-secrets and `obj/`/`bin/` are excluded | | |
-| TASK-044 | Add integration test: `Tests/WhiteboardHubTests.cs` — verify JoinBoard returns snapshot, SendStroke persists and broadcasts, UndoLastStroke removes correct stroke, access denied for non-members on private boards | | |
+| TASK-044 | Add integration test: `Tests/WhiteboardHubTests.cs` — verify JoinBoard returns the snapshot and broadcasts `UserJoined`, SendStroke persists and broadcasts, UndoLastStroke removes the caller's last stroke. (Private-board access-denial tests are in [feature-board-administration-1.md](./feature-board-administration-1.md).) | | |
 | TASK-047 | Add unit test: `Tests/StrokeEventServiceTests.cs` — verify event append and query operations against Atlas (test database) | | |
 
 ## 3. Alternatives
