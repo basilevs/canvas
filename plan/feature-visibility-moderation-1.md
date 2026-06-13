@@ -4,13 +4,13 @@ version: 1.0
 date_created: 2026-06-13
 last_updated: 2026-06-13
 owner: basilevs
-status: 'Planned'
+status: 'On Hold'
 tags: [feature, moderation, access-control, signalr, mongodb]
 ---
 
 # Introduction
 
-![Status: Planned](https://img.shields.io/badge/status-Planned-blue)
+![Status: On Hold](https://img.shields.io/badge/status-On_Hold-orange)
 
 Implement a moderation capability that lets a board owner hide all contributions of any member up to a chosen cut-off moment, restore them later, and optionally view the full unfiltered history themselves. Hidden strokes remain in storage but become invisible to all non-owner members. Filtering is applied at serve-time based on the caller's identity; the stored snapshot and event log are never mutated by a hide operation.
 

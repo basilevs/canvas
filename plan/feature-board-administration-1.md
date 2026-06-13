@@ -4,13 +4,13 @@ version: 1.0
 date_created: 2026-06-13
 last_updated: 2026-06-13
 owner: basilevs
-status: 'Planned'
+status: 'On Hold'
 tags: [feature, access-control, administration, signalr, mongodb]
 ---
 
 # Introduction
 
-![Status: Planned](https://img.shields.io/badge/status-Planned-blue)
+![Status: On Hold](https://img.shields.io/badge/status-On_Hold-orange)
 
 Implement the board owner's administration capabilities layered on top of the core membership model: generating single-use invite links, delegating invite creation to members, toggling board visibility between public and private, removing members (with immediate disconnection), and forcing a member's visible pseudonym. These controls govern who may access a board, how new members are admitted, and how members are presented. Core ownership establishment (first accessor becomes owner) and the membership primitives (`AddMemberAsync`, `IsMemberAsync`, `GetOrCreateBoardAsync`, `GetMembersWithNamesAsync`) plus self-chosen display names are provided by the parent whiteboard plan.
 

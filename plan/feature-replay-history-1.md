@@ -4,13 +4,13 @@ version: 1.0
 date_created: 2026-06-13
 last_updated: 2026-06-13
 owner: basilevs
-status: 'Planned'
+status: 'On Hold'
 tags: [feature, replay, history, animation, frontend, rest-api]
 ---
 
 # Introduction
 
-![Status: Planned](https://img.shields.io/badge/status-Planned-blue)
+![Status: On Hold](https://img.shields.io/badge/status-On_Hold-orange)
 
 Implement a video-like replay system that allows users to watch the board's drawing history animated chronologically. The replay skips periods of inactivity (configurable threshold), animates individual strokes point-by-point using stored temporal metadata, and provides VCR-style playback controls.
 
