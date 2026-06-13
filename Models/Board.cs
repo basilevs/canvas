@@ -14,4 +14,6 @@ public sealed class Board
     public DateTime CreatedAt { get; set; }
 
     public DateTime LastActivityAt { get; set; }
+
+    public List<Stroke> ActiveStrokes { get; set; } = [];
 }

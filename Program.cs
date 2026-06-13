@@ -29,4 +29,9 @@ app.UseStaticFiles();
 app.MapHub<WhiteboardHub>("/hub/whiteboard");
 app.MapFallbackToFile("/boards/{*slug}", "index.html");
 
+var boardService = app.Services.GetRequiredService<IBoardService>();
+var userProfileService = app.Services.GetRequiredService<IUserProfileService>();
+await boardService.EnsureIndexesAsync(CancellationToken.None);
+await userProfileService.EnsureIndexesAsync(CancellationToken.None);
+
 app.Run();
