@@ -23,7 +23,7 @@ Implement the board owner's administration capabilities, including the underlyin
 - **REQ-003**: Board owner can toggle board visibility between public (anyone with the URL can join) and private (invite-only) at any time
 - **REQ-004**: Board owner can remove existing members from the board; removed members lose access immediately and their active connections are disconnected
 - **REQ-005**: Board owner can override (force) the visible pseudonym of any member on their board; the forced name is what all other members see regardless of the user's self-chosen name. The owner can clear the override, reverting to the member's self-chosen name.
-- **REQ-006**: Once boards can be private or members can be removed, the core stroke operation (`SendStroke`) and the REST snapshot endpoint must verify the caller is a member and reject non-members; this membership verification is owned by this plan and layered onto the core operations
+- **REQ-006**: Once boards can be private or members can be removed, the core stroke-mutating operations (`SendStroke`, and `UndoLastStroke` once introduced by [feature-replay-history-1.md](./feature-replay-history-1.md)) and the REST snapshot endpoint must verify the caller is a member and reject non-members; this membership verification is owned by this plan and layered onto the core operations
 - **CON-001**: Only the board owner may invoke `SetPublic`, `SetMembersCanInvite`, `RemoveMember`, `SetForcedName`, and `ClearForcedName`; the server enforces ownership and never trusts client-supplied identity
 - **CON-002**: The owner cannot be removed from their own board
 - **CON-003**: Invite tokens are cryptographically random, URL-safe, and single-use (atomic redemption)
@@ -66,6 +66,7 @@ Implement the board owner's administration capabilities, including the underlyin
 | TASK-012 | Ensure the core `JoinBoard` flow enforces private-board access: if board `IsPublic` is false, reject non-members with `AccessDenied`; if public, auto-add as member. (This enforcement is the consumer of REQ-003 and lives in the core hub.) | | |
 | TASK-031 | Layer member-access enforcement onto the core `SendStroke` hub method (`Hubs/WhiteboardHub.cs`): before validating/persisting the stroke, verify the caller is a member via `BoardService.IsMemberAsync(boardId, userId)`; reject non-members (e.g. a removed member, or a non-member on a private board) with `AccessDenied` and neither persist nor broadcast the stroke. (This guard relies on the membership model introduced by TASK-035; it becomes meaningful once boards can be private or members can be removed.) | | |
 | TASK-033 | Layer private-board access enforcement onto the core REST snapshot endpoint `GET /api/boards/{name}/snapshot`: for private boards (`IsPublic` is false), require a `userId` and verify membership via `BoardService.IsMemberAsync(boardId, userId)`, returning `403 Forbidden` for non-members; public boards remain open. | | |
+| TASK-036 | Layer member-access enforcement onto the `UndoLastStroke` hub method (introduced by [feature-replay-history-1.md](./feature-replay-history-1.md)): before removing the caller's last stroke, verify the caller is a member via `BoardService.IsMemberAsync(boardId, userId)`; reject non-members with `AccessDenied`. (Only applicable once both this plan and the undo feature are in place; mirrors the `SendStroke` guard in TASK-031.) | | |
 
 ### Implementation Phase 3
 
@@ -89,7 +90,7 @@ Implement the board owner's administration capabilities, including the underlyin
 | TASK-019 | Add integration test `Tests/MemberRemovalTests.cs` — verify owner can remove member, removed member's connection receives `Kicked`, removed user cannot rejoin a private board, non-owner cannot remove others. | | |
 | TASK-020 | Add integration test in `Tests/BoardAdminTests.cs` — non-owner cannot call `SetPublic`, `SetMembersCanInvite`, or `RemoveMember` (rejected with error); owner cannot be removed. | | |
 | TASK-021 | Add integration test — non-member joining a private board receives `AccessDenied`; joining with a valid invite succeeds and adds membership; after toggling to public, any user may join. | | |
-| TASK-034 | Add integration test `Tests/MemberAccessTests.cs` — on a private board, a non-member calling `SendStroke` is rejected with `AccessDenied` and no stroke is persisted/broadcast; a removed member can no longer send strokes; the `GET /api/boards/{name}/snapshot` endpoint returns `403` for a non-member of a private board and serves the snapshot for members and for public boards. | | |
+| TASK-034 | Add integration test `Tests/MemberAccessTests.cs` — on a private board, a non-member calling `SendStroke` (or `UndoLastStroke`, where present) is rejected with `AccessDenied` and no stroke is persisted/broadcast; a removed member can no longer send strokes; the `GET /api/boards/{name}/snapshot` endpoint returns `403` for a non-member of a private board and serves the snapshot for members and for public boards. | | |
 | TASK-022 | Manual test — Generate an invite link as owner, open it in an incognito window, verify the new user gains access to a private board; redeem the same link a second time and verify it is rejected. | | |
 | TASK-023 | Manual test — As owner, remove a member who has a second browser tab open; verify their tab receives `Kicked` and they cannot rejoin the private board. | | |
 
@@ -120,7 +121,7 @@ Implement the board owner's administration capabilities, including the underlyin
 - **DEP-001**: `Models/Board.cs` — adds `OwnerId`, `IsPublic`, `MembersCanInvite`, `Members` (`BoardMember` value object) to the MVP model
 - **DEP-002**: `Services/BoardService.cs` — adds membership primitives (`AddMemberAsync`, `IsMemberAsync`, `GetMembersWithNamesAsync`) and owner establishment; extends the MVP's `GetOrCreateBoardAsync`
 - **DEP-003**: `Services/MongoDbContext.cs` — `Invites` collection accessor
-- **DEP-004**: `Hubs/WhiteboardHub.cs` — server-assigned identity, core `JoinBoard`, `SendStroke`, `SetDisplayName`, group broadcasting
+- **DEP-004**: `Hubs/WhiteboardHub.cs` — server-assigned identity, core `JoinBoard`, `SendStroke`, `SetDisplayName`, group broadcasting (and `UndoLastStroke` once introduced by [feature-replay-history-1.md](./feature-replay-history-1.md))
 - **DEP-005**: `Services/UserProfileService.cs` — resolve a member's self-chosen `DisplayName` when an override is cleared
 - **DEP-006**: `wwwroot/js/admin.js`, `connection.js`, `app.js`, `index.html` — owner panel and invite landing UI
 
@@ -131,7 +132,7 @@ Implement the board owner's administration capabilities, including the underlyin
 - **FILE-003**: `Services/BoardService.cs` — Add owner establishment + membership primitives (`AddMemberAsync`, `IsMemberAsync`, `GetMembersWithNamesAsync`, owner in `GetOrCreateBoardAsync`) and `SetPublicAsync`, `SetMembersCanInviteAsync`, `RemoveMemberAsync`, `SetForcedNameAsync`, `ClearForcedNameAsync`
 - **FILE-004**: `Models/BoardMember.cs` — Create the embedded member value object (`UserId`; `ForcedName` owner-assigned pseudonym override)
 - **FILE-016**: `Models/Board.cs` — Add ownership/membership fields (`OwnerId`, `IsPublic`, `MembersCanInvite`, `Members`) to the MVP model
-- **FILE-005**: `Hubs/WhiteboardHub.cs` (+ `Hubs/IWhiteboardClient.cs`) — Update core `JoinBoard` to add the caller as a member; add `JoinBoardWithInvite`, `CreateInvite`, `SetPublic`, `SetMembersCanInvite`, `RemoveMember`, `SetForcedName`, `ClearForcedName`, connection tracking, and a member-access guard on the core `SendStroke` method; extend `IWhiteboardClient` with this plan's client events (GUD-009)
+- **FILE-005**: `Hubs/WhiteboardHub.cs` (+ `Hubs/IWhiteboardClient.cs`) — Update core `JoinBoard` to add the caller as a member; add `JoinBoardWithInvite`, `CreateInvite`, `SetPublic`, `SetMembersCanInvite`, `RemoveMember`, `SetForcedName`, `ClearForcedName`, connection tracking, and member-access guards on the core `SendStroke` (and `UndoLastStroke`, where present) methods; extend `IWhiteboardClient` with this plan's client events (GUD-009)
 - **FILE-006**: `wwwroot/js/admin.js` — Owner settings panel (invites, public/private, member removal, forced names)
 - **FILE-007**: `wwwroot/js/connection.js` — Register `BoardSettingsChanged`/`UserRemoved`/`Kicked`/`AccessDenied`/`InvalidInvite` handlers
 - **FILE-008**: `wwwroot/js/app.js` — Invite URL detection and kick handling
@@ -140,7 +141,7 @@ Implement the board owner's administration capabilities, including the underlyin
 - **FILE-011**: `Tests/MemberRemovalTests.cs` — Member removal integration tests
 - **FILE-012**: `Tests/BoardAdminTests.cs` — Owner-only control enforcement tests
 - **FILE-013**: `Tests/ForcedNameTests.cs` — Owner-forced pseudonym integration tests
-- **FILE-014**: `Tests/MemberAccessTests.cs` — Member-access enforcement tests for `SendStroke` and the REST snapshot endpoint
+- **FILE-014**: `Tests/MemberAccessTests.cs` — Member-access enforcement tests for `SendStroke` (and `UndoLastStroke`, where present) and the REST snapshot endpoint
 - **FILE-015**: The minimal-API board snapshot endpoint `GET /api/boards/{name}/snapshot` (from the parent plan) — Add private-board membership enforcement
 
 ## 6. Testing
@@ -154,7 +155,7 @@ Implement the board owner's administration capabilities, including the underlyin
 - **TEST-007**: Integration test — Owner sets a forced name; all members see it via `UserRenamed`; the member's self `SetDisplayName` does not override it; clearing the override reverts to the self-chosen name
 - **TEST-008**: Manual test — Generate invite link as owner, open in incognito window, verify new user gains access to private board
 - **TEST-009**: Manual test — Owner forces a member's pseudonym, the member changes their own name, others still see the forced name; owner clears it and the self-chosen name returns
-- **TEST-010**: Integration test — On a private board, a non-member calling `SendStroke` is rejected with `AccessDenied` (nothing persisted/broadcast); a removed member can no longer send strokes; `GET /api/boards/{name}/snapshot` returns `403` for a non-member of a private board and serves the snapshot for members and public boards
+- **TEST-010**: Integration test — On a private board, a non-member calling `SendStroke` (or `UndoLastStroke`, where present) is rejected with `AccessDenied` (nothing persisted/broadcast); a removed member can no longer send strokes; `GET /api/boards/{name}/snapshot` returns `403` for a non-member of a private board and serves the snapshot for members and public boards
 
 ## 7. Risks & Assumptions
 

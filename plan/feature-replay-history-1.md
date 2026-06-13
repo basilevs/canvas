@@ -1,11 +1,11 @@
 ---
-goal: Implement video-like history replay with inactivity compression for the collaborative whiteboard
+goal: Implement video-like history replay (with inactivity compression) and single-step undo for the collaborative whiteboard
 version: 1.0
 date_created: 2026-06-13
 last_updated: 2026-06-13
 owner: basilevs
 status: 'On Hold'
-tags: [feature, replay, history, animation, frontend, rest-api]
+tags: [feature, replay, history, undo, animation, frontend, rest-api]
 ---
 
 # Introduction
@@ -15,6 +15,8 @@ tags: [feature, replay, history, animation, frontend, rest-api]
 Implement a video-like replay system that allows users to watch the board's drawing history animated chronologically. The replay skips periods of inactivity (configurable threshold), animates individual strokes point-by-point using stored temporal metadata, and provides VCR-style playback controls.
 
 Because replay is the sole consumer of the append-only event log, this plan also **introduces** that foundation (relocated out of the MVP, which persists only the live `Board.ActiveStrokes` snapshot): the `StrokeEvent` document, `StrokeEventService`, the `StrokeEvents` collection + indexes, and the layering of event-append onto the core hub `SendStroke`. See [feature-collaborative-whiteboard-1.md](./feature-collaborative-whiteboard-1.md) for the MVP that this builds upon.
+
+This plan also **owns undo** (single-step removal of the caller's last stroke). Undo is the producer of `Remove` `StrokeEvent`s, so it belongs with the event log it depends on: it queries the log for the caller's most recent stroke, removes it from the live snapshot, records a `Remove` event, and broadcasts the removal. Undo (Phase 5) depends only on the Phase 0 event-log foundation and can be implemented immediately after it, independently of the replay UI (Phases 1–4).
 
 ## 1. Requirements & Constraints
 
@@ -26,6 +28,7 @@ Because replay is the sole consumer of the append-only event log, this plan also
 - **REQ-006**: This plan serves the **complete unfiltered** stroke history to board members; owner-controlled visibility filtering of replay (HiddenRanges cut-offs) is a separate concern layered on by [feature-history-cutoff-moderation-1.md](./feature-history-cutoff-moderation-1.md)
 - **REQ-007**: Replay data is fetched from a dedicated REST endpoint, paginated for large boards
 - **REQ-008**: This plan introduces the append-only event log: every accepted stroke is recorded as an `Add` `StrokeEvent` (with `Timestamp`, monotonically increasing per-board `SequenceNumber`, and the embedded stroke's temporal metadata) so that history can be replayed
+- **REQ-009**: A user can undo their own most recently drawn stroke; undo removes it from the live `Board.ActiveStrokes` snapshot, records a `Remove` `StrokeEvent`, and broadcasts the removal so every connected client updates. Undo only affects the caller's own strokes and is a no-op when the caller has no remaining strokes
 - **CON-001**: Frontend is vanilla JavaScript on HTML5 Canvas (no framework)
 - **CON-002**: Backend is ASP.NET Core 10.0 with MongoDB Atlas
 - **CON-003**: `StrokeEvent` documents carry `Timestamp`, `SequenceNumber`, `Stroke.Duration`, and `Stroke.Points[].TimeOffset`; these document and the `Stroke`/`Point` temporal fields are reused from the MVP data model, but the event log document and persistence are introduced by this plan (Phase 0)
@@ -41,7 +44,7 @@ Because replay is the sole consumer of the append-only event log, this plan also
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-030 | Create `Models/StrokeEvent.cs` — append-only event document: `Id` (`ObjectId`), `BoardName` (string), `Type` (enum `EventType { Add, Remove }`), `Stroke` (embedded `Stroke`, reusing the MVP model with its `Duration`/`Points[].TimeOffset` temporal metadata), `Timestamp` (`DateTimeOffset`), `SequenceNumber` (long, monotonically increasing per board). Note: `Remove` events are only produced if an undo/erase feature is later added — the MVP and this plan produce only `Add` events. | | |
+| TASK-030 | Create `Models/StrokeEvent.cs` — append-only event document: `Id` (`ObjectId`), `BoardName` (string), `Type` (enum `EventType { Add, Remove }`), `Stroke` (embedded `Stroke`, reusing the MVP model with its `Duration`/`Points[].TimeOffset` temporal metadata), `Timestamp` (`DateTimeOffset`), `SequenceNumber` (long, monotonically increasing per board). `Add` events are produced by `SendStroke` (Phase 0); `Remove` events are produced by undo (Phase 5). | | |
 | TASK-031 | Add a `StrokeEvents` typed collection accessor to `Services/MongoDbContext.cs` (and `IMongoDbContext`), extending the MVP context which exposes only `Boards` and `Users`. | | |
 | TASK-032 | Create `Services/StrokeEventService.cs` (and `IStrokeEventService`) with: `AppendEventAsync(boardName, EventType type, Stroke stroke)` (assigns the next per-board `SequenceNumber` and `Timestamp`, inserts the document), `GetEventsAsync(boardName)` (all events ordered by `SequenceNumber`), `GetRecentEventsAsync(boardName, count)`, and `GetEventsSinceAsync(boardName, sinceSequenceNumber)`. Register `IStrokeEventService` in DI in `Program.cs`. | | |
 | TASK-033 | Create MongoDB indexes for `StrokeEvents`: a unique compound index `{ BoardName: 1, SequenceNumber: 1 }` and a query index `{ BoardName: 1, Timestamp: 1 }` (these were noted as deferred in the MVP TASK-022). | | |
@@ -104,12 +107,25 @@ Because replay is the sole consumer of the append-only event log, this plan also
 | TASK-027 | Manual test — During replay, click pause, move scrubber to 50%, resume. Verify canvas shows correct state at midpoint and continues animating from there. | | |
 | TASK-028 | Manual test — Change speed from 1x to 4x during playback. Verify animation speeds up smoothly without jumping. | | |
 
+### Implementation Phase 5
+
+- GOAL-005: Implement single-step undo (remove the caller's last stroke) on top of the Phase 0 event log. Depends only on Phase 0 and is independent of the replay UI (Phases 1–4).
+
+| Task | Description | Completed | Date |
+|------|-------------|-----------|------|
+| TASK-036 | Extend `IStrokeEventService`/`StrokeEventService` with `GetLastAddByUserAsync(boardName, userId)` — return the caller's most recent `Add` event whose stroke is still present in the snapshot (no later `Remove` for the same stroke id), or `null` if the caller has no removable stroke. | | |
+| TASK-037 | Add `BoardService.RemoveStrokeFromSnapshotAsync(boardName, strokeId)` — remove the stroke with the given id from the board's `ActiveStrokes` snapshot. | | |
+| TASK-038 | Add the hub method `UndoLastStroke(boardName)` to `Hubs/WhiteboardHub.cs` (`Hub<IWhiteboardClient>`): resolve userId from `Context.GetHttpContext().Items["UserId"]` (server-assigned); find the caller's last removable stroke via `GetLastAddByUserAsync`; if none, no-op. Otherwise remove it from the snapshot (`RemoveStrokeFromSnapshotAsync`), append a `Remove` `StrokeEvent` for the stroke (`AppendEventAsync(boardName, EventType.Remove, stroke)`), and broadcast `StrokeRemoved(strokeId)` to the group. Per GUD-009, extend `IWhiteboardClient` with `StrokeRemoved(strokeId)` and broadcast via the typed proxy, never `SendAsync`. Note: member-access enforcement on private boards is layered onto this method by [feature-board-administration-1.md](./feature-board-administration-1.md), consistent with the guard on `SendStroke`. | | |
+| TASK-039 | Add an undo control to the `wwwroot/index.html` toolbar (`<button id="btn-undo">↶ Undo</button>`) wired to call `UndoLastStroke(currentBoardName)`. | | |
+| TASK-040 | In `wwwroot/js/connection.js` register a `StrokeRemoved(strokeId)` handler; in `wwwroot/js/app.js` handle it by removing the stroke from the local canvas state and re-rendering. | | |
+| TASK-041 | Add integration test `Tests/UndoTests.cs` — `UndoLastStroke` removes only the caller's most recent stroke from the snapshot, appends a `Remove` event, and broadcasts `StrokeRemoved`; repeated undo removes strokes in reverse draw order; undo by a caller with no strokes is a no-op; one user's undo never removes another user's stroke. | | |
+
 ## 3. Alternatives
 
 - **ALT-001**: Server-side video rendering (FFmpeg) to produce MP4 — rejected; adds heavy server dependency, eliminates interactivity (seek/pause), and increases infrastructure cost
 - **ALT-002**: WebGL-based canvas rendering for replay — rejected; raw Canvas 2D API is sufficient for stroke replay and avoids WebGL complexity for a drawing app
 - **ALT-003**: Stream events via SignalR during replay instead of REST fetch — rejected; REST with pagination is simpler, cacheable, and doesn't tie up a WebSocket for a read-only operation
-- **ALT-004**: Store pre-computed replay timeline in MongoDB — rejected; timeline computation is lightweight (client-side) and storing it would create stale data on every hide operation
+- **ALT-004**: Store pre-computed replay timeline in MongoDB — rejected; timeline computation is lightweight (client-side) and storing it would create stale data on every undo or hide operation
 
 ## 4. Dependencies
 
@@ -118,19 +134,24 @@ Because replay is the sole consumer of the append-only event log, this plan also
 - **DEP-003**: `Middleware/UserIdentityMiddleware.cs` — resolves userId from HttpOnly cookie on REST requests
 - **DEP-004**: `Models/StrokeEvent.cs` — introduced by this plan (Phase 0); document with `Type`, `Stroke` (containing `Points[].TimeOffset`, `Duration`), `Timestamp`, `SequenceNumber`
 - **DEP-005**: `Models/Point.cs` — must include `TimeOffset` (long, milliseconds since stroke start)
+- **DEP-006**: `Models/Stroke.cs` — must carry a stable stroke `Id` so undo can target and broadcast a specific stroke (`StrokeRemoved(strokeId)`)
 
 ## 5. Files
 
 - **FILE-001**: `Program.cs` — Add `MapGet("/api/boards/{name}/history", ...)` endpoint registration
 - **FILE-002**: `wwwroot/js/replay.js` — ReplayEngine class: history loading, timeline computation, animation loop, gap compression, seek, speed control
-- **FILE-003**: `wwwroot/index.html` — Add replay button to toolbar, add replay overlay HTML (scrubber, controls, time display)
+- **FILE-003**: `wwwroot/index.html` — Add replay button + replay overlay HTML (scrubber, controls, time display) and the undo button (Phase 5)
 - **FILE-004**: `wwwroot/css/style.css` — Add replay overlay styles (positioned over canvas, control bar at bottom)
 - **FILE-005**: `Tests/ReplayHistoryEndpointTests.cs` — Integration tests for the history REST endpoint
 - **FILE-006**: `Models/StrokeEvent.cs` — Append-only event log document introduced by this plan (Phase 0); `Type` (Add/Remove), embedded `Stroke`, `Timestamp`, per-board `SequenceNumber`
-- **FILE-007**: `Services/StrokeEventService.cs` (+ `IStrokeEventService`) — Event append and query operations (Phase 0); registered in DI in `Program.cs`
+- **FILE-007**: `Services/StrokeEventService.cs` (+ `IStrokeEventService`) — Event append and query operations (Phase 0); plus `GetLastAddByUserAsync` for undo (Phase 5); registered in DI in `Program.cs`
 - **FILE-008**: `Services/MongoDbContext.cs` — Add the `StrokeEvents` collection accessor (extends the MVP context) and the `StrokeEvents` indexes (Phase 0)
-- **FILE-009**: `Hubs/WhiteboardHub.cs` — Layer `StrokeEventService.AppendEventAsync(..., EventType.Add, ...)` onto the core `SendStroke` method (Phase 0)
+- **FILE-009**: `Hubs/WhiteboardHub.cs` (+ `Hubs/IWhiteboardClient.cs`) — Layer `AppendEventAsync(..., EventType.Add, ...)` onto the core `SendStroke` (Phase 0); add the `UndoLastStroke` method and the `StrokeRemoved` client event (Phase 5)
 - **FILE-010**: `Tests/StrokeEventServiceTests.cs` — Integration tests for the event log (relocated from the MVP; exercises a test database)
+- **FILE-011**: `Services/BoardService.cs` — Add `RemoveStrokeFromSnapshotAsync` for undo (Phase 5)
+- **FILE-012**: `wwwroot/js/connection.js` — Register the `StrokeRemoved` handler (Phase 5)
+- **FILE-013**: `wwwroot/js/app.js` — Remove the undone stroke from the local canvas and re-render (Phase 5)
+- **FILE-014**: `Tests/UndoTests.cs` — Undo integration tests (Phase 5)
 
 ## 6. Testing
 
@@ -140,6 +161,8 @@ Because replay is the sole consumer of the append-only event log, this plan also
 - **TEST-006**: Unit test — `seek(0.5)` on a timeline with 4 strokes renders exactly the first 2 strokes completely
 - **TEST-007**: Manual test — Full replay with gap compression behaves as described in Phase 4 TASK-026–028
 - **TEST-008**: Integration test — `StrokeEventService.AppendEventAsync` assigns incrementing per-board sequence numbers and `GetEventsAsync` returns events ordered by `SequenceNumber` (Phase 0 event log)
+- **TEST-009**: Integration test — `UndoLastStroke` removes only the caller's most recent stroke from the snapshot, appends a `Remove` event, and broadcasts `StrokeRemoved(strokeId)`; repeated undo removes strokes in reverse draw order
+- **TEST-010**: Integration test — Undo by a caller with no strokes is a no-op, and a caller's undo never removes another user's stroke
 
 ## 7. Risks & Assumptions
 
