@@ -13,6 +13,4 @@ public sealed class Stroke
     public float Width { get; set; }
 
     public DateTime Timestamp { get; set; }
-
-    public long Duration { get; set; }
 }

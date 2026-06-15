@@ -38,8 +38,7 @@ public sealed class WhiteboardHubTests
             Guid.NewGuid().ToString("D"),
             [new PointInput(1, 2, null, 0)],
             "#123456",
-            3,
-            10);
+            3);
 
         await hub.SendStroke("demo-board", stroke);
         await hub.SendStroke("demo-board", stroke);

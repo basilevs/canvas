@@ -98,7 +98,6 @@ class WhiteboardCanvas {
       points: [],
       color: this.currentColor,
       width: this.currentWidth,
-      duration: 0,
       startTime: performance.now()
     };
 
@@ -120,7 +119,6 @@ class WhiteboardCanvas {
     }
 
     this.appendPoint(event);
-    this.currentStroke.duration = Math.max(0, Math.round(performance.now() - this.currentStroke.startTime));
     const completedStroke = this.currentStroke;
     this.currentStroke = null;
     this.previewStroke = completedStroke;

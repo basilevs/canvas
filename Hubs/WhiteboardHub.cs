@@ -102,7 +102,6 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
             UserId = userId,
             Color = stroke.Color,
             Width = stroke.Width,
-            Duration = stroke.Duration,
             Timestamp = DateTime.UtcNow,
             Points = stroke.Points.Select(point => new Point
             {

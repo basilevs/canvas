@@ -7,5 +7,4 @@ public sealed record StrokeInput(
     string Id,
     IReadOnlyList<PointInput> Points,
     string Color,
-    float Width,
-    long Duration);
+    float Width);
