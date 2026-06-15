@@ -136,7 +136,7 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 - **DEP-002**: `Services/BoardService.cs` — the history route normalizes the URL slug to its canonical `boardId` (the board `_id`) at the boundary; `BoardService.GetBoardAsync(boardId)` confirms the board exists before querying the event log (no name→id lookup needed)
 - **DEP-003**: `Middleware/UserIdentityMiddleware.cs` (MVP) — resolves userId from the HttpOnly cookie / connection context. Consumed only by the undo hub method (`UndoLastStroke`, Phase 5) to match the caller against `Stroke.UserId`; the REST history endpoint needs **no** caller identity (REQ-007)
 - **DEP-004**: `Models/StrokeEvent.cs` — introduced by this plan (Phase 0); time-series document with `Type`, `Stroke` (containing `UserId`, `Id`, `Points[].TimeOffset`, `Duration`), and `Timestamp` (the `timeField`)
-- **DEP-005**: `Models/Point.cs` — must include `TimeOffset` (long, milliseconds since stroke start)
+- **DEP-005**: `Models/Point.cs` — must include `TimeOffset` (`ushort`, milliseconds since stroke start; ≤ ~65 s, no sub-millisecond precision — serialized by the driver as BSON Int32, half the storage of the former `long`, which matters as every point is persisted in the event log)
 - **DEP-006**: `Models/Stroke.cs` — must carry a stable stroke `Id` and the drawing `UserId`: undo targets and broadcasts a specific stroke (`StrokeRemoved(strokeId)`) and matches ownership by `UserId`, the event log uses `Id` as the tiebreaker when two events share a `Timestamp`, and `Id` is the natural idempotency / de-duplication key for events
 
 ## 5. Files

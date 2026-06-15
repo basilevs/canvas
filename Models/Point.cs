@@ -8,5 +8,5 @@ public sealed class Point
 
     public double? Pressure { get; set; }
 
-    public long TimeOffset { get; set; }
+    public ushort TimeOffset { get; set; }
 }

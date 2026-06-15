@@ -144,7 +144,7 @@ class WhiteboardCanvas {
       x: point.x,
       y: point.y,
       pressure: event.pressure > 0 ? event.pressure : null,
-      timeOffset: Math.max(0, Math.round(performance.now() - this.currentStroke.startTime))
+      timeOffset: Math.min(65535, Math.max(0, Math.round(performance.now() - this.currentStroke.startTime)))
     });
   }
 
