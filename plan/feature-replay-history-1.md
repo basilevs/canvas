@@ -22,7 +22,7 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 
 - **REQ-001**: Users can trigger a replay mode that animates the board's stroke history in chronological order
 - **REQ-002**: Replay uses `Stroke.Timestamp` for inter-stroke timing and `Point.TimeOffset` for intra-stroke point-by-point animation
-- **REQ-003**: Inactivity gaps exceeding a configurable threshold (default 3 seconds) are compressed/skipped during playback
+- **REQ-003**: The timeline display shows the actual historical timestamp (`Stroke.Timestamp`) of the stroke being animated, not compressed playback time
 - **REQ-004**: Playback speed is adjustable: 1x, 2x, 4x multipliers
 - **REQ-005**: VCR controls: play, pause, seek (timeline scrubber), stop (exit replay)
 - **REQ-006**: On its own this plan's history endpoint is **open to any identified caller** and serves the **complete unfiltered** stroke history. The route slug is only a boundary input; the handler **normalizes** `/api/boards/{name}` to its canonical `boardId` (the board's `_id`) before querying internal services — no name→id database lookup is involved. The **membership access gate** (reject non-members with `403`) and owner-controlled visibility filtering of replay (HiddenRanges cut-offs) are separate concerns layered on by [feature-history-access-moderation-1.md](./feature-history-access-moderation-1.md), which depends on the membership and HiddenRange models from the administration/moderation plans
@@ -76,14 +76,14 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-010 | Create `wwwroot/js/replay.js` — export `ReplayEngine` class with constructor accepting a canvas 2D context reference and configuration `{ gapThresholdMs: 3000, speed: 1 }`. | | |
+| TASK-010 | Create `wwwroot/js/replay.js` — export `ReplayEngine` class with constructor accepting a canvas 2D context reference and configuration `{ speed: 1 }`. | | |
 | TASK-011 | Implement `ReplayEngine.loadHistory(boardName)` — fetch all pages from `GET /api/boards/{boardName}/history/1`, `/history/2`, etc. (auto-paginate until a 404 is encountered), store events in `this.events` array sorted by `timestamp` (ties broken by stroke `id`). | | |
-| TASK-012 | Implement `ReplayEngine.computeTimeline()` — precompute a timeline array: for each event, calculate `realTimeGapMs` (time since previous event's timestamp). If `realTimeGapMs > gapThresholdMs`, compress to `gapThresholdMs`. Store `playbackOffsetMs` (cumulative adjusted time) for each event. Compute `totalDurationMs` for the entire replay. | | |
-| TASK-013 | Implement `ReplayEngine.play()` — start a `requestAnimationFrame` loop. Track `elapsedMs` using `performance.now()` scaled by `this.speed`. For each frame, determine which events should have started based on `elapsedMs` vs `playbackOffsetMs`. For active strokes, animate points using `Point.TimeOffset` scaled by speed. | | |
+| TASK-012 | Implement `ReplayEngine.computeTimeline()` — precompute timeline metadata: for each event, store `timestamp` and index. Compute the `firstTimestamp` and `lastTimestamp` of the entire history for scrubber range normalization. | | |
+| TASK-013 | Implement `ReplayEngine.play()` — start a `requestAnimationFrame` loop. Track elapsed real-world time using `performance.now()` scaled by `this.speed`, starting from `firstTimestamp`. For each frame, determine which events should have completed based on current playback time vs event `Timestamp`. For active strokes, animate points using `Point.TimeOffset` scaled by speed. | | |
 | TASK-014 | Implement intra-stroke animation: when rendering a stroke in progress, draw points incrementally — only points where `(elapsedMs - strokeStartMs) * speed >= point.TimeOffset` are rendered. Use `ctx.beginPath()` / `ctx.lineTo()` for smooth progressive drawing. | | |
 | TASK-015 | Implement `ReplayEngine.pause()` — pause the `requestAnimationFrame` loop, store current `elapsedMs`. | | |
 | TASK-016 | Implement `ReplayEngine.resume()` — resume from stored `elapsedMs`. | | |
-| TASK-017 | Implement `ReplayEngine.seek(positionRatio)` — accept 0.0–1.0, compute target `elapsedMs = positionRatio * totalDurationMs`, clear canvas, re-render all events that complete before target time (instant render), then set playback position for animation to continue from there. | | |
+| TASK-017 | Implement `ReplayEngine.seek(positionRatio)` — accept 0.0–1.0, compute target `timestamp = firstTimestamp + (positionRatio * (lastTimestamp - firstTimestamp))`, clear canvas, re-render all events with `Timestamp <= target` (instant render), then set playback position to continue from that timestamp. | | |
 | TASK-018 | Implement `ReplayEngine.setSpeed(multiplier)` — accept 1, 2, or 4. Adjust elapsed time tracking so playback continues smoothly from current position at new speed. | | |
 | TASK-019 | Implement `ReplayEngine.stop()` — stop animation loop, clear canvas, fire `onStop` callback to notify UI. | | |
 | TASK-020 | Handle `Remove` events in replay: when a Remove event's playback time is reached, erase the referenced stroke from the canvas (re-render all prior visible strokes excluding removed ones). | | |
@@ -97,7 +97,7 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 | TASK-021 | Add replay controls to `wwwroot/index.html`: (1) In toolbar: add replay button (`<button id="btn-replay">▶ Replay</button>` — **always visible**), plus replay-mode-only controls (play/pause button, stop button, speed selector, elapsed time display — **hidden by default, shown during replay**). (2) Under canvas: add `<div id="replay-controls">` containing timeline scrubber (`<input type="range" id="replay-scrubber" min="0" max="1" step="0.001">` — **hidden by default, shown during replay**). | | |
 | TASK-022 | Wire replay button click (in toolbar): instantiate `ReplayEngine(canvasCtx, config)`, call `loadHistory(boardName)`, show scrubber div and replay-mode toolbar buttons (set `display: block`/`inline-block`), disable drawing tools, call `play()`. | | |
 | TASK-023 | Wire replay-mode controls during replay: play/pause button toggles `pause()`/`resume()`, stop calls `stop()` and hides scrubber div and replay-mode toolbar buttons + re-enables drawing tools + resyncs board state by refetching all events from the history endpoint, scrubber `input` event calls `seek(value)`, speed selector `change` calls `setSpeed(value)`. | | |
-| TASK-024 | Wire `ReplayEngine.onProgress` callback: update scrubber position and elapsed time display on each animation frame (`currentMs / totalDurationMs`). Format time as `MM:SS / TOTAL:MM:SS`. | | |
+| TASK-024 | Wire `ReplayEngine.onProgress` callback: update scrubber position (as a ratio of time elapsed between `firstTimestamp` and `lastTimestamp`) and display the current event's `Timestamp` formatted as ISO 8601 or localized date/time string. | | |
 | TASK-025 | Wire `ReplayEngine.onStop` callback: hide scrubber div and replay-mode toolbar buttons (set `display: none`), restore drawing tools, resync board state by refetching all events from the history endpoint to rebuild the current canvas. | | |
 | TASK-026 | Add CSS in `wwwroot/css/style.css` for replay controls: scrubber div positioned directly under canvas with full width, styled scrubber input. Scrubber div and replay-mode toolbar controls hidden by default (`display: none`). Replay button always visible. | | |
 
@@ -109,7 +109,7 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 |------|-------------|-----------|------|
 | TASK-026 | Unit test `Tests/ReplayEngineTests.js` (or inline in HTML test page): verify `computeTimeline()` compresses gaps > 3s, verify totalDurationMs is correct, verify seek renders correct state at midpoint. | | |
 | TASK-027 | Integration test `Tests/ReplayHistoryEndpointTests.cs`: verify that the endpoint returns events with correct pagination metadata, each page has a distinct `Last-Modified` header equal to the last stroke's timestamp on that page, and all pages combined contain the complete unfiltered history. (The membership-`403` gate and HiddenRanges filtering tests live in [feature-history-access-moderation-1.md](./feature-history-access-moderation-1.md).) | | |
-| TASK-028 | Manual test — Draw 5 strokes with 10+ second pauses between some. Click replay. Verify inactivity gaps are compressed, strokes animate point-by-point, total replay duration is much shorter than real elapsed time. | | |
+| TASK-028 | Manual test — Draw 5 strokes with 10+ second pauses between some. Click replay. Verify strokes animate point-by-point with real-world timing intact (pauses wait in real time, but scaled by playback speed). Verify current timestamp is displayed correctly. | | |
 | TASK-029 | Manual test — During replay, click pause, move scrubber to 50%, resume. Verify canvas shows correct state at midpoint and continues animating from there. | | |
 | TASK-030 | Manual test — Change speed from 1x to 4x during playback. Verify animation speeds up smoothly without jumping. | | |
 
