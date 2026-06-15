@@ -10,22 +10,10 @@
 </head>
 <body>
   <main class="container whiteboard-shell">
-    <nav class="toolbar">
-      <form id="board-form" class="toolbar-group">
-        <label>
-          Board
-          <input id="board-input" name="board" type="text" placeholder="board-name" autocomplete="off" spellcheck="false">
-        </label>
-        <button type="submit">Switch board</button>
-      </form>
-
-      <form id="display-name-form" class="toolbar-group">
-        <label>
-          Display name
-          <input id="display-name-input" name="displayName" type="text" maxlength="30" autocomplete="nickname" placeholder="Anonymous">
-        </label>
-      </form>
-
+    <section class="board-layout">
+      <div class="canvas-shell">
+        <canvas id="whiteboard-canvas" aria-label="Collaborative whiteboard canvas"></canvas>
+      </div>
       <div class="toolbar-group toolbar-controls">
         <label>
           Color
@@ -36,12 +24,6 @@
           <input id="width-input" type="range" min="1" max="24" value="4">
         </label>
       </div>
-    </nav>
-
-    <section class="board-layout">
-      <div class="canvas-shell">
-        <canvas id="whiteboard-canvas" aria-label="Collaborative whiteboard canvas"></canvas>
-      </div>
 
       <aside class="users-panel">
         <h2>Connected users</h2>
@@ -50,6 +32,25 @@
       </aside>
     </section>
   </main>
+
+  <nav class="toolbar">
+    <form id="board-form" class="toolbar-group">
+      <label>
+        Board
+        <input id="board-input" name="board" type="text" placeholder="board-name" autocomplete="off" spellcheck="false">
+      </label>
+      <button type="submit">Switch board</button>
+    </form>
+
+    <form id="display-name-form" class="toolbar-group">
+      <label>
+        Display name
+        <input id="display-name-input" name="displayName" type="text" maxlength="30" autocomplete="nickname" placeholder="Anonymous">
+      </label>
+    </form>
+
+  </nav>
+
 
   <script type="module" src="/js/app.js"></script>
 </body>

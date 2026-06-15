@@ -108,11 +108,7 @@ class WhiteboardCanvas {
   }
 
   handlePointerMove(event) {
-    if (!this.currentStroke) {
-      this.updateCursor(event);
-      return;
-    }
-
+    this.updateCursor(event);
     this.appendPoint(event);
     this.previewStroke = this.currentStroke;
     this.render();
