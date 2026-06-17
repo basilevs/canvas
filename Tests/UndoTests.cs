@@ -28,7 +28,7 @@ public sealed class UndoTests
     {
         (_context, _databaseName) = await MongoTestSupport.CreateContextAsync(TestContext.CancellationTokenSource.Token);
         _strokeEvents = new StrokeEventService(_context);
-        await _strokeEvents.EnsureIndexesAsync(TestContext.CancellationTokenSource.Token);
+        await _context.InitializeAsync(TestContext.CancellationTokenSource.Token);
         _boardService = new InMemoryBoardService();
         _userProfiles = new InMemoryUserProfileService();
         _group = new TestWhiteboardClient();

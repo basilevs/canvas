@@ -122,12 +122,12 @@ app.MapGet("/", async Task<IResult> (
 app.MapHub<WhiteboardHub>("/hub/whiteboard");
 app.MapFallbackToFile("/boards/{*slug}", "index.html");
 
+var mongoDbContext = app.Services.GetRequiredService<IMongoDbContext>();
 var boardService = app.Services.GetRequiredService<IBoardService>();
 var userProfileService = app.Services.GetRequiredService<IUserProfileService>();
-var strokeEventService = app.Services.GetRequiredService<IStrokeEventService>();
+await mongoDbContext.InitializeAsync(CancellationToken.None);
 await boardService.EnsureIndexesAsync(CancellationToken.None);
 await userProfileService.EnsureIndexesAsync(CancellationToken.None);
-await strokeEventService.EnsureIndexesAsync(CancellationToken.None);
 
 app.Run();
 

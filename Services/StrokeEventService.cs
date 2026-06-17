@@ -27,9 +27,6 @@ public interface IStrokeEventService
     /// has not since been removed, or <see langword="null"/> when none remain.
     /// </summary>
     Task<Stroke?> GetLastRemovableStrokeByUserAsync(string boardId, string userId, CancellationToken cancellationToken);
-
-    /// <summary>Creates the time-series collection (if absent) and its secondary indexes.</summary>
-    Task EnsureIndexesAsync(CancellationToken cancellationToken);
 }
 
 public sealed class StrokeEventService : IStrokeEventService
@@ -37,20 +34,18 @@ public sealed class StrokeEventService : IStrokeEventService
     /// <summary>Default page size for history pagination, optimized for throughput.</summary>
     public const int DefaultPageSize = 5000;
 
-    private const string CollectionName = "StrokeEvents";
-
     // Bounded scan window for the last-removable-stroke lookup so undo never folds
     // the whole log (GUD-001): a small number of recent Adds are inspected newest-first.
     private const int LastRemovableScanLimit = 200;
 
-    private readonly IMongoDatabase _database;
-    private readonly IMongoCollection<StrokeEvent> _events;
+    private readonly IMongoDbContext _context;
 
     public StrokeEventService(IMongoDbContext mongoDbContext)
     {
-        _database = mongoDbContext.Database;
-        _events = mongoDbContext.StrokeEvents;
+        _context = mongoDbContext;
     }
+
+    private IMongoCollection<StrokeEvent> Events => _context.StrokeEvents;
 
     public async Task<bool> AppendEventAsync(string boardId, EventType type, Stroke stroke, CancellationToken cancellationToken)
     {
@@ -65,7 +60,7 @@ public sealed class StrokeEventService : IStrokeEventService
         {
             // Time-series collections support no unique index, so de-duplicate Add
             // events at the application level by the stroke's client-generated Id.
-            var duplicate = await _events
+            var duplicate = await Events
                 .Find(e => e.BoardId == boardId && e.Type == EventType.Add && e.Stroke.Id == stroke.Id)
                 .Limit(1)
                 .AnyAsync(cancellationToken);
@@ -84,7 +79,7 @@ public sealed class StrokeEventService : IStrokeEventService
             Timestamp = DateTime.UtcNow
         };
 
-        await _events.InsertOneAsync(strokeEvent, cancellationToken: cancellationToken);
+        await Events.InsertOneAsync(strokeEvent, cancellationToken: cancellationToken);
         return true;
     }
 
@@ -102,7 +97,7 @@ public sealed class StrokeEventService : IStrokeEventService
         }
 
         var filter = Builders<StrokeEvent>.Filter.Eq(e => e.BoardId, boardId);
-        var totalEvents = await _events.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
+        var totalEvents = await Events.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
         var totalPages = (int)((totalEvents + pageSize - 1) / pageSize);
 
         if (pageNumber > totalPages)
@@ -110,7 +105,7 @@ public sealed class StrokeEventService : IStrokeEventService
             return new StrokeEventPage([], totalEvents, totalPages);
         }
 
-        var events = await _events
+        var events = await Events
             .Find(filter)
             .Sort(ChronologicalSort)
             .Skip((pageNumber - 1) * pageSize)
@@ -128,7 +123,7 @@ public sealed class StrokeEventService : IStrokeEventService
             Builders<StrokeEvent>.Filter.Eq(e => e.BoardId, boardId),
             Builders<StrokeEvent>.Filter.Gte(e => e.Timestamp, sinceTimestamp));
 
-        return await _events
+        return await Events
             .Find(filter)
             .Sort(ChronologicalSort)
             .ToListAsync(cancellationToken);
@@ -147,7 +142,7 @@ public sealed class StrokeEventService : IStrokeEventService
             Builders<StrokeEvent>.Filter.Eq(e => e.Type, EventType.Add),
             Builders<StrokeEvent>.Filter.Eq(e => e.Stroke.UserId, userId));
 
-        var recentAdds = await _events
+        var recentAdds = await Events
             .Find(addFilter)
             .Sort(Builders<StrokeEvent>.Sort.Descending(e => e.Timestamp).Descending(e => e.Stroke.Id))
             .Limit(LastRemovableScanLimit)
@@ -155,7 +150,7 @@ public sealed class StrokeEventService : IStrokeEventService
 
         foreach (var add in recentAdds)
         {
-            var removed = await _events
+            var removed = await Events
                 .Find(e => e.BoardId == boardId && e.Type == EventType.Remove && e.Stroke.Id == add.Stroke.Id)
                 .Limit(1)
                 .AnyAsync(cancellationToken);
@@ -166,38 +161,6 @@ public sealed class StrokeEventService : IStrokeEventService
         }
 
         return null;
-    }
-
-    public async Task EnsureIndexesAsync(CancellationToken cancellationToken)
-    {
-        var existing = await _database
-            .ListCollectionNames(
-                new ListCollectionNamesOptions
-                {
-                    Filter = Builders<MongoDB.Bson.BsonDocument>.Filter.Eq("name", CollectionName)
-                })
-            .ToListAsync(cancellationToken);
-
-        if (existing.Count == 0)
-        {
-            await _database.CreateCollectionAsync(
-                CollectionName,
-                new CreateCollectionOptions
-                {
-                    TimeSeriesOptions = new TimeSeriesOptions("Timestamp", "BoardId", TimeSeriesGranularity.Seconds)
-                },
-                cancellationToken);
-        }
-
-        var strokeIdIndex = new CreateIndexModel<StrokeEvent>(
-            Builders<StrokeEvent>.IndexKeys.Ascending(e => e.Stroke.Id),
-            new CreateIndexOptions { Name = "ix_strokeevents_stroke_id" });
-
-        var userTimestampIndex = new CreateIndexModel<StrokeEvent>(
-            Builders<StrokeEvent>.IndexKeys.Ascending(e => e.Stroke.UserId).Ascending(e => e.Timestamp),
-            new CreateIndexOptions { Name = "ix_strokeevents_user_timestamp" });
-
-        await _events.Indexes.CreateManyAsync([strokeIdIndex, userTimestampIndex], cancellationToken);
     }
 
     private static SortDefinition<StrokeEvent> ChronologicalSort =>

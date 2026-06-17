@@ -276,11 +276,6 @@ internal sealed class InMemoryStrokeEventService : IStrokeEventService
         return Task.FromResult<Stroke?>(null);
     }
 
-    public Task EnsureIndexesAsync(CancellationToken cancellationToken)
-    {
-        return Task.CompletedTask;
-    }
-
     private List<StrokeEvent> OrderedFor(string boardId)
     {
         return _events

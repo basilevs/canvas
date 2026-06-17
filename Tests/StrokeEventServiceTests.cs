@@ -15,7 +15,7 @@ public sealed class StrokeEventServiceTests
     {
         (_context, _databaseName) = await MongoTestSupport.CreateContextAsync(TestContext.CancellationTokenSource.Token);
         _service = new StrokeEventService(_context);
-        await _service.EnsureIndexesAsync(TestContext.CancellationTokenSource.Token);
+        await _context.InitializeAsync(TestContext.CancellationTokenSource.Token);
     }
 
     [TestCleanup]
