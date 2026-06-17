@@ -65,24 +65,25 @@ app.MapGet("/api/boards/{name}/history/{pageNumber:int}", async Task<Results<Ok<
     }
 
     // Last-Modified is the page's most-recent event truncated to whole seconds,
-    // matching HTTP-date precision so conditional GETs can compare cleanly.
-    var lastModified = TruncateToSeconds(page.Events[^1].Timestamp);
+    // formatted as an RFC1123 HTTP-date so a client's echoed If-Modified-Since
+    // can be compared by exact string equality.
+    var lastModified = TruncateToSeconds(page.Events[^1].Timestamp)
+        .ToString("R", CultureInfo.InvariantCulture);
     var isCompletePage = pageNumber < page.TotalPages;
 
-    httpContext.Response.Headers.LastModified = lastModified.ToString("R", CultureInfo.InvariantCulture);
+    httpContext.Response.Headers.LastModified = lastModified;
     // Complete pages are immutable for a year but omit `immutable` so a manual
     // reload still revalidates; the growing final page revalidates every use.
     httpContext.Response.Headers.CacheControl = isCompletePage
         ? "public, max-age=31536000"
         : "no-cache";
 
+    // Conditional GET: return 304 only when the client echoes back the exact
+    // Last-Modified value we previously emitted. We deliberately do not parse the
+    // header as a date — when the page has gained events its Last-Modified string
+    // differs, so the strings simply won't match and a fresh page is served.
     if (httpContext.Request.Headers.TryGetValue("If-Modified-Since", out var ifModifiedSince) &&
-        DateTime.TryParse(
-            ifModifiedSince.ToString(),
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
-            out var since) &&
-        since >= lastModified)
+        string.Equals(ifModifiedSince.ToString(), lastModified, StringComparison.Ordinal))
     {
         return TypedResults.StatusCode(StatusCodes.Status304NotModified);
     }

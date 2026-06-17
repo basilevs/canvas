@@ -124,6 +124,27 @@ public sealed class ReplayHistoryEndpointTests
     }
 
     [TestMethod]
+    public async Task History_conditional_get_does_not_match_a_different_timestamp()
+    {
+        await SeedBoardAsync("delta");
+        await AppendAsync("delta", "user-1");
+
+        using var client = _factory.CreateClient();
+        using var initial = await client.GetAsync("/api/boards/delta/history/1");
+        var lastModified = initial.Content.Headers.LastModified;
+        Assert.IsNotNull(lastModified);
+
+        // A timestamp that is newer than Last-Modified must NOT yield 304: the
+        // server compares the exact emitted Last-Modified string, it does not
+        // treat any sufficiently-recent client date as "still fresh".
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/boards/delta/history/1");
+        request.Headers.IfModifiedSince = lastModified.Value.AddSeconds(1);
+        using var conditional = await client.SendAsync(request);
+
+        Assert.AreEqual(HttpStatusCode.OK, conditional.StatusCode);
+    }
+
+    [TestMethod]
     public async Task History_nonexistent_page_returns_404()
     {
         await SeedBoardAsync("delta");
