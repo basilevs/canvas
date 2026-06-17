@@ -18,8 +18,6 @@ public interface IUserProfileService
     Task SetLastBoardAsync(string userId, string boardName, CancellationToken cancellationToken);
 
     Task<string?> GetLastBoardAsync(string userId, CancellationToken cancellationToken);
-
-    Task EnsureIndexesAsync(CancellationToken cancellationToken);
 }
 
 public sealed class UserProfileService : IUserProfileService

@@ -11,18 +11,10 @@ public interface IMongoDbContext
 
     /// <summary>
     /// The append-only stroke-event log. Backed by a native time-series collection
-    /// that is created by <see cref="InitializeAsync"/>; accessing this before
-    /// initialization completes throws.
+    /// that is created by <c>MongoDbContext.InitializeAsync</c>; accessing this
+    /// before initialization completes throws.
     /// </summary>
     IMongoCollection<StrokeEvent> StrokeEvents { get; }
-
-    /// <summary>
-    /// Establishes server-side schema that cannot be created in the constructor —
-    /// the native time-series <c>StrokeEvents</c> collection and its secondary
-    /// indexes. Idempotent; must be awaited once during startup before the
-    /// collections are used.
-    /// </summary>
-    Task InitializeAsync(CancellationToken cancellationToken);
 }
 
 public sealed class MongoDbContext : IMongoDbContext
@@ -52,6 +44,12 @@ public sealed class MongoDbContext : IMongoDbContext
         _strokeEvents ?? throw new InvalidOperationException(
             "MongoDbContext.InitializeAsync must be awaited before accessing StrokeEvents.");
 
+    /// <summary>
+    /// Establishes server-side schema that cannot be created in the constructor —
+    /// the native time-series <c>StrokeEvents</c> collection and its secondary
+    /// indexes. Idempotent; must be awaited once during startup before the
+    /// collections are used.
+    /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
         var existing = await _database

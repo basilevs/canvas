@@ -208,11 +208,6 @@ internal sealed class InMemoryBoardService : IBoardService
         board.LastActivityAt = DateTime.UtcNow;
         return Task.CompletedTask;
     }
-
-    public Task EnsureIndexesAsync(CancellationToken cancellationToken)
-    {
-        return Task.CompletedTask;
-    }
 }
 
 internal sealed class InMemoryStrokeEventService : IStrokeEventService
@@ -337,10 +332,5 @@ internal sealed class InMemoryUserProfileService : IUserProfileService
     public Task<string?> GetLastBoardAsync(string userId, CancellationToken cancellationToken)
     {
         return Task.FromResult(_profiles.TryGetValue(userId, out var profile) ? profile.LastBoardName : null);
-    }
-
-    public Task EnsureIndexesAsync(CancellationToken cancellationToken)
-    {
-        return Task.CompletedTask;
     }
 }

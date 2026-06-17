@@ -21,9 +21,12 @@ builder.Services.AddSingleton<IMongoClient>(serviceProvider =>
         ?? throw new InvalidOperationException("MongoDB connection string is not configured.");
     return new MongoClient(connectionString);
 });
-builder.Services.AddSingleton<IMongoDbContext, MongoDbContext>();
-builder.Services.AddSingleton<IBoardService, BoardService>();
-builder.Services.AddSingleton<IUserProfileService, UserProfileService>();
+builder.Services.AddSingleton<MongoDbContext>();
+builder.Services.AddSingleton<IMongoDbContext>(sp => sp.GetRequiredService<MongoDbContext>());
+builder.Services.AddSingleton<BoardService>();
+builder.Services.AddSingleton<IBoardService>(sp => sp.GetRequiredService<BoardService>());
+builder.Services.AddSingleton<UserProfileService>();
+builder.Services.AddSingleton<IUserProfileService>(sp => sp.GetRequiredService<UserProfileService>());
 builder.Services.AddSingleton<IStrokeEventService, StrokeEventService>();
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
@@ -129,9 +132,9 @@ app.MapGet("/", async Task<IResult> (
 app.MapHub<WhiteboardHub>("/hub/whiteboard");
 app.MapFallbackToFile("/boards/{*slug}", "index.html");
 
-var mongoDbContext = app.Services.GetRequiredService<IMongoDbContext>();
-var boardService = app.Services.GetRequiredService<IBoardService>();
-var userProfileService = app.Services.GetRequiredService<IUserProfileService>();
+var mongoDbContext = app.Services.GetRequiredService<MongoDbContext>();
+var boardService = app.Services.GetRequiredService<BoardService>();
+var userProfileService = app.Services.GetRequiredService<UserProfileService>();
 await mongoDbContext.InitializeAsync(CancellationToken.None);
 await boardService.EnsureIndexesAsync(CancellationToken.None);
 await userProfileService.EnsureIndexesAsync(CancellationToken.None);

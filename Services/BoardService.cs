@@ -12,8 +12,6 @@ public interface IBoardService
     Task<Board> GetOrCreateBoardAsync(string boardId, CancellationToken cancellationToken);
 
     Task UpdateLastActivityAsync(string boardId, CancellationToken cancellationToken);
-
-    Task EnsureIndexesAsync(CancellationToken cancellationToken);
 }
 
 public sealed class BoardService : IBoardService
