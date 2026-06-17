@@ -61,9 +61,11 @@ internal sealed class TestGroupManager : IGroupManager
 
 internal sealed class TestWhiteboardClient : IWhiteboardClient
 {
-    public List<BoardSnapshotResponse> Snapshots { get; } = [];
+    public List<IReadOnlyList<ConnectedUserResponse>> ConnectedUsersCalls { get; } = [];
 
     public List<StrokeResponse> Strokes { get; } = [];
+
+    public List<string> StrokeRemovedCalls { get; } = [];
 
     public List<(string UserId, string DisplayName)> UserJoinedCalls { get; } = [];
 
@@ -73,15 +75,21 @@ internal sealed class TestWhiteboardClient : IWhiteboardClient
 
     public List<(string UserId, double X, double Y)> CursorMovedCalls { get; } = [];
 
-    public Task LoadSnapshot(BoardSnapshotResponse board, IReadOnlyList<ConnectedUserResponse> users)
+    public Task ConnectedUsers(IReadOnlyList<ConnectedUserResponse> users)
     {
-        Snapshots.Add(board);
+        ConnectedUsersCalls.Add(users);
         return Task.CompletedTask;
     }
 
     public Task StrokeReceived(StrokeResponse stroke)
     {
         Strokes.Add(stroke);
+        return Task.CompletedTask;
+    }
+
+    public Task StrokeRemoved(string strokeId)
+    {
+        StrokeRemovedCalls.Add(strokeId);
         return Task.CompletedTask;
     }
 
@@ -167,8 +175,7 @@ internal sealed class InMemoryBoardService : IBoardService
         {
             Id = boardId,
             CreatedAt = DateTime.UtcNow,
-            LastActivityAt = DateTime.UtcNow,
-            ActiveStrokes = []
+            LastActivityAt = DateTime.UtcNow
         };
 
         _boards[boardId] = board;
@@ -202,31 +209,85 @@ internal sealed class InMemoryBoardService : IBoardService
         return Task.CompletedTask;
     }
 
-    public Task<IReadOnlyList<Stroke>> GetSnapshotAsync(string boardId, CancellationToken cancellationToken)
+    public Task EnsureIndexesAsync(CancellationToken cancellationToken)
     {
-        _boards.TryGetValue(boardId, out var board);
-        return Task.FromResult<IReadOnlyList<Stroke>>(board?.ActiveStrokes.ToList() ?? []);
+        return Task.CompletedTask;
     }
+}
 
-    public Task<bool> AddStrokeToSnapshotAsync(string boardId, Stroke stroke, CancellationToken cancellationToken)
+internal sealed class InMemoryStrokeEventService : IStrokeEventService
+{
+    private readonly List<StrokeEvent> _events = [];
+    private long _sequence;
+
+    public IReadOnlyList<StrokeEvent> Events => _events;
+
+    public Task<bool> AppendEventAsync(string boardId, EventType type, Stroke stroke, CancellationToken cancellationToken)
     {
-        if (!_boards.TryGetValue(boardId, out var board))
-        {
-            throw new KeyNotFoundException(boardId);
-        }
-
-        if (board.ActiveStrokes.Any(existing => existing.Id == stroke.Id))
+        if (type == EventType.Add &&
+            _events.Any(e => e.BoardId == boardId && e.Type == EventType.Add && e.Stroke.Id == stroke.Id))
         {
             return Task.FromResult(false);
         }
 
-        board.ActiveStrokes.Add(stroke);
+        // Monotonic, distinct timestamps keep ordering deterministic in tests.
+        _events.Add(new StrokeEvent
+        {
+            Id = MongoDB.Bson.ObjectId.GenerateNewId(),
+            BoardId = boardId,
+            Type = type,
+            Stroke = stroke,
+            Timestamp = DateTime.UtcNow.AddTicks(_sequence++)
+        });
+
         return Task.FromResult(true);
+    }
+
+    public Task<StrokeEventPage> GetEventsPageAsync(string boardId, int pageNumber, int pageSize, CancellationToken cancellationToken)
+    {
+        var ordered = OrderedFor(boardId);
+        var totalEvents = ordered.Count;
+        var totalPages = (int)((totalEvents + (long)pageSize - 1) / pageSize);
+        var slice = ordered.Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList();
+        return Task.FromResult(new StrokeEventPage(slice, totalEvents, totalPages));
+    }
+
+    public Task<IReadOnlyList<StrokeEvent>> GetEventsSinceAsync(string boardId, DateTime sinceTimestamp, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<StrokeEvent> result = OrderedFor(boardId)
+            .Where(e => e.Timestamp >= sinceTimestamp)
+            .ToList();
+        return Task.FromResult(result);
+    }
+
+    public Task<Stroke?> GetLastRemovableStrokeByUserAsync(string boardId, string userId, CancellationToken cancellationToken)
+    {
+        foreach (var add in OrderedFor(boardId)
+                     .Where(e => e.Type == EventType.Add && e.Stroke.UserId == userId)
+                     .Reverse())
+        {
+            var removed = _events.Any(e => e.BoardId == boardId && e.Type == EventType.Remove && e.Stroke.Id == add.Stroke.Id);
+            if (!removed)
+            {
+                return Task.FromResult<Stroke?>(add.Stroke);
+            }
+        }
+
+        return Task.FromResult<Stroke?>(null);
     }
 
     public Task EnsureIndexesAsync(CancellationToken cancellationToken)
     {
         return Task.CompletedTask;
+    }
+
+    private List<StrokeEvent> OrderedFor(string boardId)
+    {
+        return _events
+            .Where(e => e.BoardId == boardId)
+            .OrderBy(e => e.Timestamp)
+            .ThenBy(e => e.Stroke.Id, StringComparer.Ordinal)
+            .ToList();
     }
 }
 

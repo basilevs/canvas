@@ -13,7 +13,7 @@ public sealed class DisplayNameTests
         var hub = CreateHub(out _, out var group, out var boardService, out var userProfileService, out _, out _);
         await boardService.CreateBoardAsync("demo-board", default);
 
-        await hub.JoinBoard("demo-board");
+        await hub.JoinBoard("demo-board", DateTime.UnixEpoch);
         await hub.SetDisplayName("New Name");
 
         var profile = await userProfileService.GetOrCreateProfileAsync("user-1", default);
@@ -27,7 +27,7 @@ public sealed class DisplayNameTests
     {
         var hub = CreateHub(out _, out _, out var boardService, out _, out _, out _);
         await boardService.CreateBoardAsync("demo-board", default);
-        await hub.JoinBoard("demo-board");
+        await hub.JoinBoard("demo-board", DateTime.UnixEpoch);
 
         await AssertHubExceptionAsync(() => hub.SetDisplayName(""));
         await AssertHubExceptionAsync(() => hub.SetDisplayName(new string('x', 31)));
@@ -48,7 +48,7 @@ public sealed class DisplayNameTests
         context = new TestHubCallerContext("conn-" + Guid.NewGuid().ToString("N"), "user-1");
         groups = new TestGroupManager();
 
-        var hub = new WhiteboardHub(boardService, userProfileService)
+        var hub = new WhiteboardHub(boardService, userProfileService, new InMemoryStrokeEventService())
         {
             Context = context,
             Clients = new TestHubCallerClients(caller, group),

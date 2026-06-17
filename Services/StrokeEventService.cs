@@ -1,0 +1,205 @@
+using Canvas.Models;
+using MongoDB.Driver;
+
+namespace Canvas.Services;
+
+/// <summary>A page of stroke-history events plus pagination totals.</summary>
+public sealed record StrokeEventPage(IReadOnlyList<StrokeEvent> Events, long TotalEvents, int TotalPages);
+
+public interface IStrokeEventService
+{
+    /// <summary>
+    /// Appends an event to the board's log, stamping the server timestamp. For
+    /// <see cref="EventType.Add"/> events this is the insert-time de-duplication
+    /// authority: an <c>Add</c> whose stroke <c>Id</c> already exists on the board
+    /// is skipped. Returns <see langword="true"/> when a document was inserted.
+    /// </summary>
+    Task<bool> AppendEventAsync(string boardId, EventType type, Stroke stroke, CancellationToken cancellationToken);
+
+    /// <summary>Returns an oldest-first page of the board's events plus totals.</summary>
+    Task<StrokeEventPage> GetEventsPageAsync(string boardId, int pageNumber, int pageSize, CancellationToken cancellationToken);
+
+    /// <summary>Returns all events with <c>Timestamp &gt;= sinceTimestamp</c>, oldest-first (inclusive).</summary>
+    Task<IReadOnlyList<StrokeEvent>> GetEventsSinceAsync(string boardId, DateTime sinceTimestamp, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Bounded, index-backed lookup of the caller's most recently added stroke that
+    /// has not since been removed, or <see langword="null"/> when none remain.
+    /// </summary>
+    Task<Stroke?> GetLastRemovableStrokeByUserAsync(string boardId, string userId, CancellationToken cancellationToken);
+
+    /// <summary>Creates the time-series collection (if absent) and its secondary indexes.</summary>
+    Task EnsureIndexesAsync(CancellationToken cancellationToken);
+}
+
+public sealed class StrokeEventService : IStrokeEventService
+{
+    /// <summary>Default page size for history pagination, optimized for throughput.</summary>
+    public const int DefaultPageSize = 5000;
+
+    private const string CollectionName = "StrokeEvents";
+
+    // Bounded scan window for the last-removable-stroke lookup so undo never folds
+    // the whole log (GUD-001): a small number of recent Adds are inspected newest-first.
+    private const int LastRemovableScanLimit = 200;
+
+    private readonly IMongoDatabase _database;
+    private readonly IMongoCollection<StrokeEvent> _events;
+
+    public StrokeEventService(IMongoDbContext mongoDbContext)
+    {
+        _database = mongoDbContext.Database;
+        _events = mongoDbContext.StrokeEvents;
+    }
+
+    public async Task<bool> AppendEventAsync(string boardId, EventType type, Stroke stroke, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(boardId);
+        ArgumentNullException.ThrowIfNull(stroke);
+        if (string.IsNullOrWhiteSpace(stroke.Id))
+        {
+            throw new ArgumentException("Stroke id is required.", nameof(stroke));
+        }
+
+        if (type == EventType.Add)
+        {
+            // Time-series collections support no unique index, so de-duplicate Add
+            // events at the application level by the stroke's client-generated Id.
+            var duplicate = await _events
+                .Find(e => e.BoardId == boardId && e.Type == EventType.Add && e.Stroke.Id == stroke.Id)
+                .Limit(1)
+                .AnyAsync(cancellationToken);
+            if (duplicate)
+            {
+                return false;
+            }
+        }
+
+        var strokeEvent = new StrokeEvent
+        {
+            Id = MongoDB.Bson.ObjectId.GenerateNewId(),
+            BoardId = boardId,
+            Type = type,
+            Stroke = stroke,
+            Timestamp = DateTime.UtcNow
+        };
+
+        await _events.InsertOneAsync(strokeEvent, cancellationToken: cancellationToken);
+        return true;
+    }
+
+    public async Task<StrokeEventPage> GetEventsPageAsync(string boardId, int pageNumber, int pageSize, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(boardId);
+        if (pageNumber < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pageNumber));
+        }
+
+        if (pageSize < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pageSize));
+        }
+
+        var filter = Builders<StrokeEvent>.Filter.Eq(e => e.BoardId, boardId);
+        var totalEvents = await _events.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
+        var totalPages = (int)((totalEvents + pageSize - 1) / pageSize);
+
+        if (pageNumber > totalPages)
+        {
+            return new StrokeEventPage([], totalEvents, totalPages);
+        }
+
+        var events = await _events
+            .Find(filter)
+            .Sort(ChronologicalSort)
+            .Skip((pageNumber - 1) * pageSize)
+            .Limit(pageSize)
+            .ToListAsync(cancellationToken);
+
+        return new StrokeEventPage(events, totalEvents, totalPages);
+    }
+
+    public async Task<IReadOnlyList<StrokeEvent>> GetEventsSinceAsync(string boardId, DateTime sinceTimestamp, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(boardId);
+
+        var filter = Builders<StrokeEvent>.Filter.And(
+            Builders<StrokeEvent>.Filter.Eq(e => e.BoardId, boardId),
+            Builders<StrokeEvent>.Filter.Gte(e => e.Timestamp, sinceTimestamp));
+
+        return await _events
+            .Find(filter)
+            .Sort(ChronologicalSort)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<Stroke?> GetLastRemovableStrokeByUserAsync(string boardId, string userId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(boardId);
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return null;
+        }
+
+        var addFilter = Builders<StrokeEvent>.Filter.And(
+            Builders<StrokeEvent>.Filter.Eq(e => e.BoardId, boardId),
+            Builders<StrokeEvent>.Filter.Eq(e => e.Type, EventType.Add),
+            Builders<StrokeEvent>.Filter.Eq(e => e.Stroke.UserId, userId));
+
+        var recentAdds = await _events
+            .Find(addFilter)
+            .Sort(Builders<StrokeEvent>.Sort.Descending(e => e.Timestamp).Descending(e => e.Stroke.Id))
+            .Limit(LastRemovableScanLimit)
+            .ToListAsync(cancellationToken);
+
+        foreach (var add in recentAdds)
+        {
+            var removed = await _events
+                .Find(e => e.BoardId == boardId && e.Type == EventType.Remove && e.Stroke.Id == add.Stroke.Id)
+                .Limit(1)
+                .AnyAsync(cancellationToken);
+            if (!removed)
+            {
+                return add.Stroke;
+            }
+        }
+
+        return null;
+    }
+
+    public async Task EnsureIndexesAsync(CancellationToken cancellationToken)
+    {
+        var existing = await _database
+            .ListCollectionNames(
+                new ListCollectionNamesOptions
+                {
+                    Filter = Builders<MongoDB.Bson.BsonDocument>.Filter.Eq("name", CollectionName)
+                })
+            .ToListAsync(cancellationToken);
+
+        if (existing.Count == 0)
+        {
+            await _database.CreateCollectionAsync(
+                CollectionName,
+                new CreateCollectionOptions
+                {
+                    TimeSeriesOptions = new TimeSeriesOptions("Timestamp", "BoardId", TimeSeriesGranularity.Seconds)
+                },
+                cancellationToken);
+        }
+
+        var strokeIdIndex = new CreateIndexModel<StrokeEvent>(
+            Builders<StrokeEvent>.IndexKeys.Ascending(e => e.Stroke.Id),
+            new CreateIndexOptions { Name = "ix_strokeevents_stroke_id" });
+
+        var userTimestampIndex = new CreateIndexModel<StrokeEvent>(
+            Builders<StrokeEvent>.IndexKeys.Ascending(e => e.Stroke.UserId).Ascending(e => e.Timestamp),
+            new CreateIndexOptions { Name = "ix_strokeevents_user_timestamp" });
+
+        await _events.Indexes.CreateManyAsync([strokeIdIndex, userTimestampIndex], cancellationToken);
+    }
+
+    private static SortDefinition<StrokeEvent> ChronologicalSort =>
+        Builders<StrokeEvent>.Sort.Ascending(e => e.Timestamp).Ascending(e => e.Stroke.Id);
+}

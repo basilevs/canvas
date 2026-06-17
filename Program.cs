@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System.Globalization;
 using Canvas.Dtos;
 using Canvas.Hubs;
 using Canvas.Middleware;
@@ -16,6 +17,7 @@ builder.Services.AddSignalR();
 builder.Services.AddSingleton<IMongoDbContext, MongoDbContext>();
 builder.Services.AddSingleton<IBoardService, BoardService>();
 builder.Services.AddSingleton<IUserProfileService, UserProfileService>();
+builder.Services.AddSingleton<IStrokeEventService, StrokeEventService>();
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
@@ -30,12 +32,15 @@ app.UseExceptionHandler();
 app.UseMiddleware<UserIdentityMiddleware>();
 app.UseStaticFiles();
 
-app.MapGet("/api/boards/{name}/snapshot", async Task<Results<Ok<BoardSnapshotResponse>, BadRequest, NotFound>> (
+app.MapGet("/api/boards/{name}/history/{pageNumber:int}", async Task<Results<Ok<HistoryPageResponse>, StatusCodeHttpResult, BadRequest, NotFound>> (
     string name,
+    int pageNumber,
+    HttpContext httpContext,
     IBoardService boardService,
+    IStrokeEventService strokeEventService,
     CancellationToken cancellationToken) =>
 {
-    if (!BoardNameNormalizer.TryNormalizeBoardName(name, out var boardId))
+    if (!BoardNameNormalizer.TryNormalizeBoardName(name, out var boardId) || pageNumber < 1)
     {
         return TypedResults.BadRequest();
     }
@@ -46,11 +51,54 @@ app.MapGet("/api/boards/{name}/snapshot", async Task<Results<Ok<BoardSnapshotRes
         return TypedResults.NotFound();
     }
 
-    return TypedResults.Ok(MapBoardSnapshot(board));
+    var page = await strokeEventService.GetEventsPageAsync(
+        boardId,
+        pageNumber,
+        StrokeEventService.DefaultPageSize,
+        cancellationToken);
+
+    // A board with no events returns 404 for page 1 ("no history"); any page
+    // beyond the last is likewise absent.
+    if (pageNumber > page.TotalPages)
+    {
+        return TypedResults.NotFound();
+    }
+
+    // Last-Modified is the page's most-recent event truncated to whole seconds,
+    // matching HTTP-date precision so conditional GETs can compare cleanly.
+    var lastModified = TruncateToSeconds(page.Events[^1].Timestamp);
+    var isCompletePage = pageNumber < page.TotalPages;
+
+    httpContext.Response.Headers.LastModified = lastModified.ToString("R", CultureInfo.InvariantCulture);
+    // Complete pages are immutable for a year but omit `immutable` so a manual
+    // reload still revalidates; the growing final page revalidates every use.
+    httpContext.Response.Headers.CacheControl = isCompletePage
+        ? "public, max-age=31536000"
+        : "no-cache";
+
+    if (httpContext.Request.Headers.TryGetValue("If-Modified-Since", out var ifModifiedSince) &&
+        DateTime.TryParse(
+            ifModifiedSince.ToString(),
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+            out var since) &&
+        since >= lastModified)
+    {
+        return TypedResults.StatusCode(StatusCodes.Status304NotModified);
+    }
+
+    var response = new HistoryPageResponse(
+        pageNumber,
+        (int)page.TotalEvents,
+        page.TotalPages,
+        page.Events.Select(MapStrokeEvent).ToList());
+
+    return TypedResults.Ok(response);
 })
-.WithName("GetBoardSnapshot")
-.WithSummary("Gets the current board snapshot")
-.Produces<BoardSnapshotResponse>(StatusCodes.Status200OK)
+.WithName("GetBoardHistory")
+.WithSummary("Gets a page of board stroke history")
+.Produces<HistoryPageResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status304NotModified)
 .Produces(StatusCodes.Status400BadRequest)
 .Produces(StatusCodes.Status404NotFound);
 
@@ -75,16 +123,25 @@ app.MapFallbackToFile("/boards/{*slug}", "index.html");
 
 var boardService = app.Services.GetRequiredService<IBoardService>();
 var userProfileService = app.Services.GetRequiredService<IUserProfileService>();
+var strokeEventService = app.Services.GetRequiredService<IStrokeEventService>();
 await boardService.EnsureIndexesAsync(CancellationToken.None);
 await userProfileService.EnsureIndexesAsync(CancellationToken.None);
+await strokeEventService.EnsureIndexesAsync(CancellationToken.None);
 
 app.Run();
 
-static BoardSnapshotResponse MapBoardSnapshot(Board board)
+static StrokeEventResponse MapStrokeEvent(StrokeEvent strokeEvent)
 {
-    return new BoardSnapshotResponse(
-        board.Id,
-        board.ActiveStrokes.Select(MapStroke).ToList());
+    return new StrokeEventResponse(
+        strokeEvent.Id.ToString(),
+        strokeEvent.Type.ToString(),
+        MapStroke(strokeEvent.Stroke),
+        strokeEvent.Timestamp);
+}
+
+static DateTime TruncateToSeconds(DateTime value)
+{
+    return new DateTime(value.Ticks - (value.Ticks % TimeSpan.TicksPerSecond), DateTimeKind.Utc);
 }
 
 static StrokeResponse MapStroke(Stroke stroke)
@@ -115,3 +172,5 @@ static string GenerateBoardName()
 
     return new string(chars);
 }
+
+public partial class Program;

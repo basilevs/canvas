@@ -1,5 +1,6 @@
 import { createWhiteboardCanvas } from './canvas.js';
 import { createWhiteboardConnection } from './connection.js';
+import { fetchAllHistory, foldEvents, lastEventTimestamp } from './history.js';
 
 const boardForm = document.getElementById('board-form');
 const boardInput = document.getElementById('board-input');
@@ -32,16 +33,16 @@ const whiteboardCanvas = createWhiteboardCanvas(canvasElement, {
 });
 
 const connection = createWhiteboardConnection({
-  onLoadSnapshot: (board, users) => {
-    const activeStrokes = board.activeStrokes ?? board.ActiveStrokes ?? [];
-    whiteboardCanvas.setSnapshot(activeStrokes);
-    state.boardName = board.boardName ?? board.BoardName ?? state.boardName;
+  onConnectedUsers: users => {
     syncUsers(users);
     updateStatus(`Joined ${state.boardName}`);
   },
   onStrokeReceived: stroke => {
     whiteboardCanvas.commitStroke(stroke);
     registerKnownUser(stroke.userId ?? stroke.UserId, null);
+  },
+  onStrokeRemoved: strokeId => {
+    whiteboardCanvas.removeStroke(strokeId);
   },
   onUserJoined: (userId, displayName) => {
     registerKnownUser(userId, displayName);
@@ -118,8 +119,15 @@ function configureDrawingTools() {
 
 async function startBoard() {
   try {
+    // Load the full, cacheable history first, render it, then atomically join:
+    // the server replays only the newer tail through the same live channel,
+    // de-duplicated by stroke id, so nothing is missed or duplicated.
+    const history = await fetchAllHistory(state.boardName);
+    whiteboardCanvas.setSnapshot(foldEvents(history));
+    const sinceTimestamp = lastEventTimestamp(history);
+
     await connection.start();
-    await connection.joinBoard(state.boardName);
+    await connection.joinBoard(state.boardName, sinceTimestamp);
   } catch (error) {
     updateStatus(error?.message ?? 'Failed to connect');
   }

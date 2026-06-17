@@ -56,6 +56,18 @@ class WhiteboardCanvas {
     this.render();
   }
 
+  removeStroke(strokeId) {
+    if (!strokeId) {
+      return;
+    }
+
+    const index = this.confirmedStrokes.findIndex(existing => getStrokeId(existing) === strokeId);
+    if (index !== -1) {
+      this.confirmedStrokes.splice(index, 1);
+      this.render();
+    }
+  }
+
   setRemoteCursor(userId, cursor) {
     if (!userId) {
       return;

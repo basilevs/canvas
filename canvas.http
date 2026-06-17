@@ -1,9 +1,18 @@
 @canvas_HostAddress = http://localhost:5190
 
-GET {{canvas_HostAddress}}/api/boards/example-board/snapshot
+# First page of a board's stroke history (chronological, oldest-first).
+GET {{canvas_HostAddress}}/api/boards/example-board/history/1
 Accept: application/json
 
 ###
 
-GET {{canvas_HostAddress}}/api/boards/does-not-exist/snapshot
+# A page beyond the available history returns 404 (also page 1 of an empty board).
+GET {{canvas_HostAddress}}/api/boards/example-board/history/999
 Accept: application/json
+
+###
+
+# Conditional GET: a matching If-Modified-Since revalidates to 304 Not Modified.
+GET {{canvas_HostAddress}}/api/boards/example-board/history/1
+Accept: application/json
+If-Modified-Since: Tue, 19 Jan 2038 03:14:07 GMT

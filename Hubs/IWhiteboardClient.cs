@@ -4,9 +4,11 @@ namespace Canvas.Hubs;
 
 public interface IWhiteboardClient
 {
-    Task LoadSnapshot(BoardSnapshotResponse board, IReadOnlyList<ConnectedUserResponse> users);
+    Task ConnectedUsers(IReadOnlyList<ConnectedUserResponse> users);
 
     Task StrokeReceived(StrokeResponse stroke);
+
+    Task StrokeRemoved(string strokeId);
 
     Task UserJoined(string userId, string displayName);
 

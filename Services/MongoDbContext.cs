@@ -10,6 +10,8 @@ public interface IMongoDbContext
     IMongoCollection<Board> Boards { get; }
 
     IMongoCollection<UserProfile> Users { get; }
+
+    IMongoCollection<StrokeEvent> StrokeEvents { get; }
 }
 
 public sealed class MongoDbContext : IMongoDbContext
@@ -17,6 +19,7 @@ public sealed class MongoDbContext : IMongoDbContext
     private readonly IMongoDatabase _database;
     private readonly IMongoCollection<Board> _boards;
     private readonly IMongoCollection<UserProfile> _users;
+    private readonly IMongoCollection<StrokeEvent> _strokeEvents;
 
     public MongoDbContext(IConfiguration configuration)
     {
@@ -29,6 +32,7 @@ public sealed class MongoDbContext : IMongoDbContext
         _database = client.GetDatabase(databaseName);
         _boards = _database.GetCollection<Board>("Boards");
         _users = _database.GetCollection<UserProfile>("Users");
+        _strokeEvents = _database.GetCollection<StrokeEvent>("StrokeEvents");
     }
 
     public IMongoDatabase Database => _database;
@@ -36,4 +40,6 @@ public sealed class MongoDbContext : IMongoDbContext
     public IMongoCollection<Board> Boards => _boards;
 
     public IMongoCollection<UserProfile> Users => _users;
+
+    public IMongoCollection<StrokeEvent> StrokeEvents => _strokeEvents;
 }

@@ -14,14 +14,19 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
 
     private readonly IBoardService _boardService;
     private readonly IUserProfileService _userProfileService;
+    private readonly IStrokeEventService _strokeEventService;
 
-    public WhiteboardHub(IBoardService boardService, IUserProfileService userProfileService)
+    public WhiteboardHub(
+        IBoardService boardService,
+        IUserProfileService userProfileService,
+        IStrokeEventService strokeEventService)
     {
         _boardService = boardService;
         _userProfileService = userProfileService;
+        _strokeEventService = strokeEventService;
     }
 
-    public async Task JoinBoard(string boardName)
+    public async Task JoinBoard(string boardName, DateTime sinceTimestamp)
     {
         var cancellationToken = Context.ConnectionAborted;
         var userId = GetUserId();
@@ -45,17 +50,29 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
             await RemoveConnectionAsync(Context.ConnectionId, existingConnection, broadcastLeft: true);
         }
 
+        // Subscribe to live broadcasts FIRST, then replay the missed tail to the
+        // caller through the same typed channel. The inclusive `>=` tail read may
+        // overlap with a live broadcast that arrives in between; the client
+        // de-duplicates by stroke Id, so no event is missed or duplicated.
         await Groups.AddToGroupAsync(Context.ConnectionId, boardId, cancellationToken);
         Connections[Context.ConnectionId] = new UserConnection(boardId, userId);
 
         var connectedUsers = await GetConnectedUsersAsync(boardId, cancellationToken);
-        var strokes = await _boardService.GetSnapshotAsync(boardId, cancellationToken);
+        await Clients.Caller.ConnectedUsers(connectedUsers);
 
-        var board = new BoardSnapshotResponse(
-            boardId,
-            strokes.Select(ToStrokeResponse).ToList());
+        var tail = await _strokeEventService.GetEventsSinceAsync(boardId, sinceTimestamp, cancellationToken);
+        foreach (var strokeEvent in tail)
+        {
+            if (strokeEvent.Type == EventType.Remove)
+            {
+                await Clients.Caller.StrokeRemoved(strokeEvent.Stroke.Id);
+            }
+            else
+            {
+                await Clients.Caller.StrokeReceived(ToStrokeResponse(strokeEvent.Stroke));
+            }
+        }
 
-        await Clients.Caller.LoadSnapshot(board, connectedUsers);
         await Clients.OthersInGroup(boardId).UserJoined(userId, profile.DisplayName);
     }
 
@@ -112,7 +129,7 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
             }).ToList()
         };
 
-        var appended = await _boardService.AddStrokeToSnapshotAsync(connection.BoardId, persistedStroke, cancellationToken);
+        var appended = await _strokeEventService.AppendEventAsync(connection.BoardId, EventType.Add, persistedStroke, cancellationToken);
         if (!appended)
         {
             return;
@@ -124,6 +141,25 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
             await _boardService.UpdateLastActivityAsync(connection.BoardId, cancellationToken);
             LastActivityRefreshes[connection.BoardId] = DateTime.UtcNow;
         }
+    }
+
+    public async Task UndoLastStroke(string boardName)
+    {
+        var cancellationToken = Context.ConnectionAborted;
+        var userId = GetUserId();
+        var connection = GetConnection(boardName);
+
+        var stroke = await _strokeEventService.GetLastRemovableStrokeByUserAsync(
+            connection.BoardId,
+            userId,
+            cancellationToken);
+        if (stroke is null)
+        {
+            return;
+        }
+
+        await _strokeEventService.AppendEventAsync(connection.BoardId, EventType.Remove, stroke, cancellationToken);
+        await Clients.Group(connection.BoardId).StrokeRemoved(stroke.Id);
     }
 
     public async Task SetDisplayName(string name)
