@@ -1,6 +1,7 @@
 import { createWhiteboardCanvas } from './canvas.js';
 import { createWhiteboardConnection } from './connection.js';
 import { fetchAllHistory, foldEvents, lastEventTimestamp } from './history.js';
+import { ReplayEngine } from './replay.js';
 
 const boardForm = document.getElementById('board-form');
 const boardInput = document.getElementById('board-input');
@@ -11,12 +12,23 @@ const widthInput = document.getElementById('width-input');
 const canvasElement = document.getElementById('whiteboard-canvas');
 const usersList = document.getElementById('users-list');
 const statusText = document.getElementById('status-text');
+const btnUndo = document.getElementById('btn-undo');
+const btnReplay = document.getElementById('btn-replay');
+const btnReplayPlayPause = document.getElementById('btn-replay-playpause');
+const btnReplayStop = document.getElementById('btn-replay-stop');
+const replaySpeedSelect = document.getElementById('replay-speed');
+const replayScrubber = document.getElementById('replay-scrubber');
+const replayTimestamp = document.getElementById('replay-timestamp');
+const replayControls = document.getElementById('replay-controls');
+const replayOnlyControls = document.querySelectorAll('.replay-only');
 
 const state = {
   boardName: getBoardNameFromPath(),
   currentUserId: null,
   knownNames: new Map(),
-  connectedUsers: new Map()
+  connectedUsers: new Map(),
+  replayEngine: null,
+  replayPaused: false
 };
 
 const whiteboardCanvas = createWhiteboardCanvas(canvasElement, {
@@ -70,6 +82,8 @@ const connection = createWhiteboardConnection({
 configureBoardSwitching();
 configureDisplayNameEditing();
 configureDrawingTools();
+configureUndo();
+configureReplay();
 
 if (!state.boardName) {
   updateStatus('Open a board URL such as /boards/example');
@@ -115,6 +129,121 @@ function configureDrawingTools() {
   });
 
   whiteboardCanvas.setDrawingStyle(colorInput.value, Number(widthInput.value));
+}
+
+function configureUndo() {
+  btnUndo.addEventListener('click', async () => {
+    if (!state.boardName || state.replayEngine) {
+      return;
+    }
+
+    try {
+      await connection.undoLastStroke(state.boardName);
+    } catch (error) {
+      updateStatus(error?.message ?? 'Failed to undo');
+    }
+  });
+}
+
+function configureReplay() {
+  btnReplay.addEventListener('click', () => startReplay());
+
+  btnReplayPlayPause.addEventListener('click', () => {
+    if (!state.replayEngine) {
+      return;
+    }
+
+    if (state.replayPaused) {
+      state.replayEngine.resume();
+      state.replayPaused = false;
+      btnReplayPlayPause.textContent = '⏸ Pause';
+    } else {
+      state.replayEngine.pause();
+      state.replayPaused = true;
+      btnReplayPlayPause.textContent = '▶ Play';
+    }
+  });
+
+  btnReplayStop.addEventListener('click', () => {
+    state.replayEngine?.stop();
+  });
+
+  replayScrubber.addEventListener('input', () => {
+    state.replayEngine?.seek(Number(replayScrubber.value));
+  });
+
+  replaySpeedSelect.addEventListener('change', () => {
+    state.replayEngine?.setSpeed(Number(replaySpeedSelect.value));
+  });
+}
+
+async function startReplay() {
+  if (state.replayEngine || !state.boardName) {
+    return;
+  }
+
+  const context = canvasElement.getContext('2d');
+  const engine = new ReplayEngine(context, {
+    gapThresholdMs: 3000,
+    speed: Number(replaySpeedSelect.value)
+  });
+
+  engine.onProgress = ({ ratio, timestamp }) => {
+    replayScrubber.value = String(ratio);
+    replayTimestamp.textContent = formatTimestamp(timestamp);
+  };
+  engine.onStop = () => exitReplay();
+
+  state.replayEngine = engine;
+  state.replayPaused = false;
+  btnReplayPlayPause.textContent = '⏸ Pause';
+
+  try {
+    await engine.loadHistory(state.boardName);
+  } catch (error) {
+    state.replayEngine = null;
+    updateStatus(error?.message ?? 'Failed to load replay');
+    return;
+  }
+
+  setReplayUiVisible(true);
+  whiteboardCanvas.setReplaying(true);
+  engine.play();
+}
+
+async function exitReplay() {
+  setReplayUiVisible(false);
+  state.replayEngine = null;
+  state.replayPaused = false;
+
+  // Resync the live canvas from the authoritative log before handing control back.
+  try {
+    const history = await fetchAllHistory(state.boardName);
+    whiteboardCanvas.setReplaying(false);
+    whiteboardCanvas.setSnapshot(foldEvents(history));
+  } catch (error) {
+    whiteboardCanvas.setReplaying(false);
+    updateStatus(error?.message ?? 'Failed to resync board');
+  }
+}
+
+function setReplayUiVisible(visible) {
+  replayControls.hidden = !visible;
+  for (const control of replayOnlyControls) {
+    control.hidden = !visible;
+  }
+
+  btnReplay.hidden = visible;
+  btnUndo.disabled = visible;
+}
+
+function formatTimestamp(timestamp) {
+  if (!timestamp) {
+    return '';
+  }
+
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
 }
 
 async function startBoard() {

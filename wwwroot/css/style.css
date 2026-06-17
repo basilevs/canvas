@@ -68,3 +68,25 @@
     grid-template-columns: 1fr;
   }
 }
+
+.replay-controls {
+  width: 100%;
+  margin: 0.5rem 0 1rem;
+}
+
+.replay-controls #replay-scrubber {
+  width: 100%;
+  margin: 0;
+}
+
+.replay-timestamp {
+  font-variant-numeric: tabular-nums;
+  color: var(--pico-muted-color);
+  align-self: center;
+}
+
+/* Replay-mode toolbar controls and the scrubber are revealed only during replay. */
+.replay-only[hidden],
+.replay-controls[hidden] {
+  display: none;
+}

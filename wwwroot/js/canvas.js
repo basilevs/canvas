@@ -15,6 +15,7 @@ class WhiteboardCanvas {
     this.currentStroke = null;
     this.currentColor = DEFAULT_COLOR;
     this.currentWidth = 4;
+    this.replaying = false;
     this.devicePixelRatio = Math.max(window.devicePixelRatio || 1, 1);
 
     this.handlePointerDown = this.handlePointerDown.bind(this);
@@ -33,6 +34,15 @@ class WhiteboardCanvas {
   setDrawingStyle(color, width) {
     this.currentColor = color || DEFAULT_COLOR;
     this.currentWidth = Number.isFinite(width) ? width : 4;
+  }
+
+  // While replaying, the ReplayEngine owns the canvas: suppress live rendering and
+  // input so animation frames are not clobbered. Leaving replay repaints current state.
+  setReplaying(value) {
+    this.replaying = value;
+    if (!value) {
+      this.render();
+    }
   }
 
   setSnapshot(strokes) {
@@ -100,7 +110,7 @@ class WhiteboardCanvas {
   }
 
   handlePointerDown(event) {
-    if (event.button !== 0) {
+    if (event.button !== 0 || this.replaying) {
       return;
     }
 
@@ -173,7 +183,7 @@ class WhiteboardCanvas {
 
   render() {
     const context = this.context;
-    if (!context) {
+    if (!context || this.replaying) {
       return;
     }
 
