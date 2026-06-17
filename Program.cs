@@ -135,9 +135,10 @@ app.MapFallbackToFile("/boards/{*slug}", "index.html");
 var mongoDbContext = app.Services.GetRequiredService<MongoDbContext>();
 var boardService = app.Services.GetRequiredService<BoardService>();
 var userProfileService = app.Services.GetRequiredService<UserProfileService>();
-await mongoDbContext.InitializeAsync(CancellationToken.None);
-await boardService.EnsureIndexesAsync(CancellationToken.None);
-await userProfileService.EnsureIndexesAsync(CancellationToken.None);
+var startupCancellation = app.Lifetime.ApplicationStopping;
+await mongoDbContext.InitializeAsync(startupCancellation);
+await boardService.EnsureIndexesAsync(startupCancellation);
+await userProfileService.EnsureIndexesAsync(startupCancellation);
 
 app.Run();
 
