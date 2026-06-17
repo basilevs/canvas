@@ -6,6 +6,7 @@ using Canvas.Middleware;
 using Canvas.Models;
 using Canvas.Services;
 using Microsoft.AspNetCore.Http.HttpResults;
+using MongoDB.Driver;
 using System.Security.Cryptography;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -14,6 +15,12 @@ builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddSignalR();
+builder.Services.AddSingleton<IMongoClient>(serviceProvider =>
+{
+    var connectionString = serviceProvider.GetRequiredService<IConfiguration>()["MongoDB:ConnectionString"]
+        ?? throw new InvalidOperationException("MongoDB connection string is not configured.");
+    return new MongoClient(connectionString);
+});
 builder.Services.AddSingleton<IMongoDbContext, MongoDbContext>();
 builder.Services.AddSingleton<IBoardService, BoardService>();
 builder.Services.AddSingleton<IUserProfileService, UserProfileService>();

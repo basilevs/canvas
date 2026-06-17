@@ -3,9 +3,9 @@ using System.Net.Http.Json;
 using Canvas.Dtos;
 using Canvas.Models;
 using Canvas.Services;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.Mvc.Testing;using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using MongoDB.Driver;
 
 namespace Canvas.Tests;
 
@@ -59,8 +59,8 @@ public sealed class ReplayHistoryEndpointTests
         {
             try
             {
-                var context = _factory.Services.GetRequiredService<IMongoDbContext>();
-                await context.Database.Client.DropDatabaseAsync(_databaseName);
+                var client = _factory.Services.GetRequiredService<IMongoClient>();
+                await client.DropDatabaseAsync(_databaseName);
             }
             catch (Exception ex) when (ex is MongoDB.Driver.MongoException or TimeoutException)
             {

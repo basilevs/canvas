@@ -34,10 +34,11 @@ internal static class MongoTestSupport
 
     /// <summary>
     /// Creates a <see cref="MongoDbContext"/> bound to a fresh test database and
-    /// verifies connectivity with a ping. Returns the context and the database name;
-    /// the test must drop the database via <see cref="DropDatabaseAsync"/>.
+    /// verifies connectivity with a ping. Returns the context, the owning client,
+    /// and the database name; the test must drop the database via
+    /// <see cref="DropDatabaseAsync"/>.
     /// </summary>
-    public static async Task<(MongoDbContext Context, string DatabaseName)> CreateContextAsync(CancellationToken cancellationToken)
+    public static async Task<(MongoDbContext Context, IMongoClient Client, string DatabaseName)> CreateContextAsync(CancellationToken cancellationToken)
     {
         var connectionString = ResolveConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -49,16 +50,15 @@ internal static class MongoTestSupport
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["MongoDB:ConnectionString"] = connectionString,
                 ["MongoDB:DatabaseName"] = databaseName
             })
             .Build();
 
-        var context = new MongoDbContext(configuration);
+        var client = new MongoClient(connectionString);
 
         try
         {
-            await context.Database.RunCommandAsync(
+            await client.GetDatabase(databaseName).RunCommandAsync(
                 (Command<MongoDB.Bson.BsonDocument>)"{ ping: 1 }",
                 cancellationToken: cancellationToken);
         }
@@ -67,11 +67,12 @@ internal static class MongoTestSupport
             Assert.Inconclusive($"MongoDB cluster is unreachable: {ex.Message}");
         }
 
-        return (context, databaseName);
+        var context = new MongoDbContext(client, configuration);
+        return (context, client, databaseName);
     }
 
-    public static async Task DropDatabaseAsync(MongoDbContext context, string databaseName)
+    public static Task DropDatabaseAsync(IMongoClient client, string databaseName)
     {
-        await context.Database.Client.DropDatabaseAsync(databaseName);
+        return client.DropDatabaseAsync(databaseName);
     }
 }

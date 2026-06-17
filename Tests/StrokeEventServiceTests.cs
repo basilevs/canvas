@@ -1,5 +1,6 @@
 using Canvas.Models;
 using Canvas.Services;
+using MongoDB.Driver;
 
 namespace Canvas.Tests;
 
@@ -7,13 +8,14 @@ namespace Canvas.Tests;
 public sealed class StrokeEventServiceTests
 {
     private MongoDbContext _context = null!;
+    private IMongoClient _client = null!;
     private string _databaseName = null!;
     private StrokeEventService _service = null!;
 
     [TestInitialize]
     public async Task SetUpAsync()
     {
-        (_context, _databaseName) = await MongoTestSupport.CreateContextAsync(TestContext.CancellationTokenSource.Token);
+        (_context, _client, _databaseName) = await MongoTestSupport.CreateContextAsync(TestContext.CancellationTokenSource.Token);
         _service = new StrokeEventService(_context);
         await _context.InitializeAsync(TestContext.CancellationTokenSource.Token);
     }
@@ -21,9 +23,9 @@ public sealed class StrokeEventServiceTests
     [TestCleanup]
     public async Task TearDownAsync()
     {
-        if (_context is not null && _databaseName is not null)
+        if (_client is not null && _databaseName is not null)
         {
-            await MongoTestSupport.DropDatabaseAsync(_context, _databaseName);
+            await MongoTestSupport.DropDatabaseAsync(_client, _databaseName);
         }
     }
 
