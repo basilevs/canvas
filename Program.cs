@@ -84,8 +84,17 @@ app.MapGet("/api/boards/{name}/history/{pageNumber:int}", async Task<Results<Ok<
     httpContext.Response.Headers.LastModified = lastModified;
     // Complete pages are immutable for a year but omit `immutable` so a manual
     // reload still revalidates; the growing final page revalidates every use.
+    //
+    // No `public`: this endpoint is currently anonymous, so a 200 GET carrying a
+    // validator/max-age is already shared-cacheable (RFC 9111 §3) and `public`
+    // would be redundant. `public` only relaxes the rule barring shared caches
+    // from storing responses to Authorization-bearing requests (RFC 9111
+    // §5.2.2.9) — once the history-access-moderation feature adds per-user
+    // authorization, `public` here would let a CDN cross-serve one user's
+    // history to another. Omit it now so that gap can't be introduced by
+    // forgetting to remove it later.
     httpContext.Response.Headers.CacheControl = isCompletePage
-        ? "public, max-age=31536000"
+        ? "max-age=31536000"
         : "no-cache";
 
     // Conditional GET: return 304 only when the client echoes back the exact
