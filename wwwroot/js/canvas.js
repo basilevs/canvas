@@ -18,17 +18,12 @@ class WhiteboardCanvas {
     this.replaying = false;
     this.devicePixelRatio = Math.max(window.devicePixelRatio || 1, 1);
 
-    this.handlePointerDown = this.handlePointerDown.bind(this);
-    this.handlePointerMove = this.handlePointerMove.bind(this);
-    this.handlePointerUp = this.handlePointerUp.bind(this);
-    this.handleResize = this.handleResize.bind(this);
-
-    this.canvas.addEventListener('pointerdown', this.handlePointerDown);
-    this.canvas.addEventListener('pointermove', this.handlePointerMove);
-    this.canvas.addEventListener('pointerup', this.handlePointerUp);
-    this.canvas.addEventListener('pointercancel', this.handlePointerUp);
-    window.addEventListener('resize', this.handleResize);
-    this.handleResize();
+    this.canvas.addEventListener('pointerdown', this.#handlePointerDown);
+    this.canvas.addEventListener('pointermove', this.#handlePointerMove);
+    this.canvas.addEventListener('pointerup', this.#handlePointerUp);
+    this.canvas.addEventListener('pointercancel', this.#handlePointerUp);
+    window.addEventListener('resize', this.#handleResize);
+    this.#handleResize();
   }
 
   setDrawingStyle(color, width) {
@@ -97,7 +92,7 @@ class WhiteboardCanvas {
     this.render();
   }
 
-  handleResize() {
+  #handleResize = () => {
     const rect = this.canvas.getBoundingClientRect();
     const width = Math.max(Math.floor(rect.width * this.devicePixelRatio), 1);
     const height = Math.max(Math.floor(rect.height * this.devicePixelRatio), 1);
@@ -107,9 +102,9 @@ class WhiteboardCanvas {
       this.canvas.height = height;
       this.render();
     }
-  }
+  };
 
-  handlePointerDown(event) {
+  #handlePointerDown = (event) => {
     if (event.button !== 0 || this.replaying) {
       return;
     }
@@ -126,16 +121,16 @@ class WhiteboardCanvas {
     this.appendPoint(event);
     this.previewStroke = this.currentStroke;
     this.render();
-  }
+  };
 
-  handlePointerMove(event) {
+  #handlePointerMove = (event) => {
     this.updateCursor(event);
     this.appendPoint(event);
     this.previewStroke = this.currentStroke;
     this.render();
-  }
+  };
 
-  handlePointerUp(event) {
+  #handlePointerUp = (event) => {
     if (!this.currentStroke) {
       return;
     }
@@ -146,7 +141,7 @@ class WhiteboardCanvas {
     this.previewStroke = completedStroke;
     this.render();
     this.handlers.onStrokeCompleted?.(completedStroke);
-  }
+  };
 
   appendPoint(event) {
     if (!this.currentStroke) {
