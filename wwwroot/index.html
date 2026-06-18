@@ -25,9 +25,9 @@
         </label>
         <button id="btn-undo" type="button" class="secondary">↶ Undo</button>
         <button id="btn-replay" type="button" class="secondary">▶ Replay</button>
-        <button id="btn-replay-playpause" type="button" class="replay-only">⏸ Pause</button>
-        <button id="btn-replay-stop" type="button" class="replay-only">⏹ Stop</button>
-        <label class="replay-only">
+        <button id="btn-replay-playpause" type="button" class="replay-only" hidden>⏸ Pause</button>
+        <button id="btn-replay-stop" type="button" class="replay-only" hidden>⏹ Stop</button>
+        <label class="replay-only" hidden>
           Speed
           <select id="replay-speed">
             <option value="1">1x</option>
@@ -35,7 +35,7 @@
             <option value="4">4x</option>
           </select>
         </label>
-        <span id="replay-timestamp" class="replay-only replay-timestamp"></span>
+        <span id="replay-timestamp" class="replay-only replay-timestamp" hidden></span>
       </div>
 
       <div id="replay-controls" class="replay-controls" hidden>

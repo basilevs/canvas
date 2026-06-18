@@ -20,10 +20,7 @@ const replaySpeedSelect = document.getElementById('replay-speed');
 const replayScrubber = document.getElementById('replay-scrubber');
 const replayTimestamp = document.getElementById('replay-timestamp');
 const replayControls = document.getElementById('replay-controls');
-
-const replayOnlyStyle = document.createElement('style');
-replayOnlyStyle.textContent = '.replay-only { display: none; }';
-document.head.appendChild(replayOnlyStyle);
+const replayOnlyControls = document.querySelectorAll('.replay-only');
 
 const state = {
   boardName: getBoardNameFromPath(),
@@ -232,7 +229,9 @@ async function exitReplay() {
 
 function setReplayUiVisible(visible) {
   replayControls.hidden = !visible;
-  replayOnlyStyle.sheet.disabled = visible;
+  for (const control of replayOnlyControls) {
+    control.hidden = !visible;
+  }
 
   btnReplay.hidden = visible;
   btnUndo.disabled = visible;
