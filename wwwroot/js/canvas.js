@@ -55,7 +55,10 @@ class WhiteboardCanvas {
     // top of the strokes canvas. This keeps frequent cursor movement from
     // forcing a full redraw of the entire stroke history (expensive on mobile),
     // since the two layers repaint independently. pointer-events: none lets
-    // input pass through to the strokes canvas below.
+    // input pass through to the strokes canvas below. Explicit z-index values
+    // give the two exactly-overlapping canvases a deterministic stacking order,
+    // avoiding the compositor z-fighting that ambiguous (auto) z-index allows.
+    this.canvas.style.zIndex = '0';
     this.cursorCanvas = document.createElement('canvas');
     const cursorStyle = this.cursorCanvas.style;
     cursorStyle.position = 'absolute';
@@ -63,6 +66,7 @@ class WhiteboardCanvas {
     cursorStyle.left = '0';
     cursorStyle.width = '100%';
     cursorStyle.height = '100%';
+    cursorStyle.zIndex = '1';
     cursorStyle.pointerEvents = 'none';
     this.canvas.parentNode.appendChild(this.cursorCanvas);
     this.cursorContext = this.cursorCanvas.getContext('2d');
