@@ -17,16 +17,13 @@ globalThis.getComputedStyle = () => ({ backgroundColor: '#ffffff' });
 
 const { ReplayEngine } = await import('../wwwroot/js/replay.js');
 
-function makeContext() {
-  const drawnStrokes = [];
+// Builds a recording 2D-context stub. Every stroke() is captured into the shared
+// `drawnStrokes` array tagged with its role, so a test can tell strokes painted
+// onto the visible canvas ('live') apart from those baked into the offscreen base
+// buffer ('base'). Both are real visible output (the base is blitted each frame).
+function buildContext(canvas, role, drawnStrokes) {
   let current = null;
-  const canvas = {
-    width: 100,
-    height: 100,
-    getBoundingClientRect: () => ({ width: 100 })
-  };
-
-  const context = {
+  return {
     canvas,
     strokeStyle: '',
     lineWidth: 0,
@@ -35,8 +32,9 @@ function makeContext() {
     fillStyle: '',
     clearRect() {},
     fillRect() {},
+    drawImage() {},
     beginPath() {
-      current = { points: [] };
+      current = { points: [], role };
     },
     moveTo(x, y) {
       current.points.push([x, y]);
@@ -48,8 +46,35 @@ function makeContext() {
       drawnStrokes.push(current);
     }
   };
+}
+
+function makeContext() {
+  const drawnStrokes = [];
+  const canvas = {
+    width: 100,
+    height: 100,
+    getBoundingClientRect: () => ({ width: 100 })
+  };
+  const context = buildContext(canvas, 'live', drawnStrokes);
+
+  // The engine lazily creates an offscreen base canvas via document.createElement.
+  // Hand back a canvas whose context records into the same array (tagged 'base').
+  globalThis.document = {
+    createElement() {
+      const baseCanvas = { width: 0, height: 0 };
+      baseCanvas.getContext = () => buildContext(baseCanvas, 'base', drawnStrokes);
+      return baseCanvas;
+    }
+  };
 
   return { context, drawnStrokes };
+}
+
+function countByRole(drawnStrokes) {
+  return {
+    base: drawnStrokes.filter(entry => entry.role === 'base').length,
+    live: drawnStrokes.filter(entry => entry.role === 'live').length
+  };
 }
 
 function addEvent(id, timestamp, lastOffsetMs) {
@@ -147,4 +172,92 @@ test('a Remove event hides a previously added stroke during replay', () => {
   engine.seek(1);
 
   assert.equal(drawnStrokes.length, 0, 'removed stroke must not be drawn');
+});
+
+test('completed strokes are baked once and not redrawn on every frame', () => {
+  const { engine, drawnStrokes } = newEngine();
+  // s2 has three points so it draws a partial segment while in progress (a
+  // two-point stroke renders nothing until its final point's time is reached).
+  const s2 = {
+    type: 'Add',
+    timestamp: '2025-01-01T00:00:00.200Z',
+    stroke: {
+      id: 's2',
+      color: '#000000',
+      width: 4,
+      points: [
+        { x: 0, y: 0, timeOffset: 0 },
+        { x: 5, y: 5, timeOffset: 50 },
+        { x: 10, y: 10, timeOffset: 100 }
+      ]
+    }
+  };
+  engine.events = [
+    addEvent('s1', '2025-01-01T00:00:00.000Z', 100),
+    // 200ms gap (< threshold) -> s2 starts at 200ms, lasts 100ms (200..300).
+    s2
+  ];
+  engine.computeTimeline();
+
+  // Frame 1: s1 (0..100) is complete, s2 has not started. s1 is baked into base.
+  engine.renderAt(150);
+  const frame1 = countByRole(drawnStrokes);
+  assert.equal(frame1.base, 1, 's1 should be baked into the base buffer once');
+  assert.equal(frame1.live, 0, 'nothing is in progress at t=150');
+
+  // Frame 2: s2 is now in progress (one segment drawn). s1 is already baked, so
+  // it must NOT be redrawn -- only the in-progress s2 is painted live.
+  drawnStrokes.length = 0;
+  engine.renderAt(250);
+  const frame2 = countByRole(drawnStrokes);
+  assert.equal(frame2.base, 0, 's1 must not be re-baked once complete');
+  assert.equal(frame2.live, 1, 'only the in-progress stroke is redrawn');
+
+  // Frame 3: still mid-s2. The completed history is never redrawn again.
+  drawnStrokes.length = 0;
+  engine.renderAt(260);
+  const frame3 = countByRole(drawnStrokes);
+  assert.equal(frame3.base, 0, 'completed history is not redrawn frame-to-frame');
+  assert.equal(frame3.live, 1, 'only the in-progress stroke is redrawn');
+});
+
+test('seeking backwards rebuilds the base buffer from scratch', () => {
+  const { engine, drawnStrokes } = newEngine();
+  engine.events = [
+    addEvent('s1', '2025-01-01T00:00:00.000Z', 100),
+    addEvent('s2', '2025-01-01T00:00:00.200Z', 100)
+  ];
+  engine.computeTimeline();
+
+  // Play forward past both strokes: both end up baked into the base buffer.
+  engine.renderAt(350);
+  drawnStrokes.length = 0;
+
+  // Seek back before s2 started: the forward-only base must be rebuilt to contain
+  // only s1, so the now-future s2 is not shown.
+  engine.renderAt(150);
+  const frame = countByRole(drawnStrokes);
+  assert.equal(frame.base, 1, 'base buffer is rebuilt with only the completed s1');
+  assert.equal(frame.live, 0, 's2 is in the future after seeking back to t=150');
+});
+
+test('a Remove forces a base rebuild that drops the removed stroke', () => {
+  const { engine, drawnStrokes } = newEngine();
+  engine.events = [
+    addEvent('s1', '2025-01-01T00:00:00.000Z', 100),
+    addEvent('s2', '2025-01-01T00:00:00.200Z', 100),
+    // s1 is undone after both strokes have finished drawing (at ~400ms).
+    { type: 'Remove', timestamp: '2025-01-01T00:00:00.400Z', stroke: { id: 's1', points: [] } }
+  ];
+  engine.computeTimeline();
+
+  // Before the Remove: both strokes are baked.
+  engine.renderAt(350);
+
+  // After the Remove completes: the base must be rebuilt so only s2 remains.
+  drawnStrokes.length = 0;
+  engine.renderAt(450);
+  const frame = countByRole(drawnStrokes);
+  assert.equal(frame.live, 0, 'no stroke is in progress at t=450');
+  assert.equal(frame.base, 1, 'base is rebuilt with s2 only after s1 is removed');
 });
