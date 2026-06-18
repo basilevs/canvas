@@ -9,6 +9,7 @@ class WhiteboardConnection {
     this.sinceTimestamp = new Date(0).toISOString();
     this.pendingStrokes = new Map();
     this.started = false;
+    this.restartPromise = null;
     this.connection = new signalR.HubConnectionBuilder()
       .withUrl('/hub/whiteboard')
       .withAutomaticReconnect()
@@ -121,7 +122,64 @@ class WhiteboardConnection {
       return;
     }
 
-    await this.connection.invoke('MoveCursor', boardName, x, y);
+    // Cursor movement is frequent user activity, so use it as a trigger to
+    // recover the connection once SignalR's automatic reconnect has given up and
+    // gone fully Disconnected. Skip sending this sample; movement resumes on the
+    // next move once reconnected.
+    if (this.connection.state !== signalR.HubConnectionState.Connected) {
+      await this.ensureConnected();
+      return;
+    }
+
+    try {
+      await this.connection.invoke('MoveCursor', boardName, x, y);
+    } catch {
+      // Cursor updates are best-effort; a transient invoke failure is ignored and
+      // the next move will detect the dropped connection and recover.
+    }
+  }
+
+  // Coalesces concurrent recovery attempts (cursor moves fire rapidly) into a
+  // single in-flight restart. Only restarts from a fully Disconnected state;
+  // while automatic reconnect is still Connecting/Reconnecting we let it finish.
+  async ensureConnected() {
+    if (this.connection.state === signalR.HubConnectionState.Connected) {
+      return true;
+    }
+    if (this.connection.state !== signalR.HubConnectionState.Disconnected) {
+      return false;
+    }
+
+    if (!this.restartPromise) {
+      this.restartPromise = this.restart().finally(() => {
+        this.restartPromise = null;
+      });
+    }
+
+    try {
+      await this.restartPromise;
+    } catch {
+      // Surfaced via onStateChanged below; the next cursor move retries.
+    }
+
+    return this.connection.state === signalR.HubConnectionState.Connected;
+  }
+
+  async restart() {
+    this.handlers.onStateChanged?.('Reconnecting…');
+    try {
+      await this.connection.start();
+      this.started = true;
+      this.handlers.onStateChanged?.('Reconnected');
+      if (this.boardName) {
+        // Re-subscribe and catch up only the tail missed while disconnected.
+        await this.joinBoard(this.boardName, this.sinceTimestamp);
+      }
+      await this.resendPendingStrokes();
+    } catch (error) {
+      this.handlers.onStateChanged?.('Disconnected');
+      throw error;
+    }
   }
 
   async undoLastStroke(boardName = this.boardName) {
