@@ -101,13 +101,13 @@ function newEngine() {
 
 test('computeTimeline compresses inactivity gaps longer than the threshold', () => {
   const { engine } = newEngine();
-  engine.events = [
+  const events = [
     addEvent('s1', '2025-01-01T00:00:00.000Z', 1000),
     // 100s real gap -> must be clamped to the 3000ms threshold.
     addEvent('s2', '2025-01-01T00:01:40.000Z', 1000)
   ];
 
-  engine.computeTimeline();
+  engine.computeTimeline(events);
 
   const [first, second] = engine.timeline;
   assert.equal(first.startMs, 0);
@@ -116,25 +116,25 @@ test('computeTimeline compresses inactivity gaps longer than the threshold', () 
 
 test('computeTimeline preserves short gaps below the threshold', () => {
   const { engine } = newEngine();
-  engine.events = [
+  const events = [
     addEvent('s1', '2025-01-01T00:00:00.000Z', 1000),
     // 1.5s real gap -> kept as-is (under the 3000ms threshold).
     addEvent('s2', '2025-01-01T00:00:01.500Z', 1000)
   ];
 
-  engine.computeTimeline();
+  engine.computeTimeline(events);
 
   assert.equal(engine.timeline[1].startMs, 1500);
 });
 
 test('totalDurationMs accounts for the final stroke duration', () => {
   const { engine } = newEngine();
-  engine.events = [
+  const events = [
     addEvent('s1', '2025-01-01T00:00:00.000Z', 1000),
     addEvent('s2', '2025-01-01T00:01:40.000Z', 1000)
   ];
 
-  engine.computeTimeline();
+  engine.computeTimeline(events);
 
   // s2 starts at 3000 (clamped gap) and lasts 1000 -> total 4000.
   assert.equal(engine.totalDurationMs, 4000);
@@ -142,11 +142,11 @@ test('totalDurationMs accounts for the final stroke duration', () => {
 
 test('seek to the midpoint renders only the strokes visible at that time', () => {
   const { engine, drawnStrokes } = newEngine();
-  engine.events = [
+  const events = [
     addEvent('s1', '2025-01-01T00:00:00.000Z', 1000),
     addEvent('s2', '2025-01-01T00:01:40.000Z', 1000)
   ];
-  engine.computeTimeline();
+  engine.computeTimeline(events);
 
   let lastProgress = null;
   engine.onProgress = (progress) => {
@@ -163,11 +163,11 @@ test('seek to the midpoint renders only the strokes visible at that time', () =>
 
 test('a Remove event hides a previously added stroke during replay', () => {
   const { engine, drawnStrokes } = newEngine();
-  engine.events = [
+  const events = [
     addEvent('s1', '2025-01-01T00:00:00.000Z', 1000),
     { type: 'Remove', timestamp: '2025-01-01T00:00:00.500Z', stroke: { id: 's1', points: [] } }
   ];
-  engine.computeTimeline();
+  engine.computeTimeline(events);
 
   engine.seek(1);
 
@@ -192,12 +192,12 @@ test('completed strokes are baked once and not redrawn on every frame', () => {
       ]
     }
   };
-  engine.events = [
+  const events = [
     addEvent('s1', '2025-01-01T00:00:00.000Z', 100),
     // 200ms gap (< threshold) -> s2 starts at 200ms, lasts 100ms (200..300).
     s2
   ];
-  engine.computeTimeline();
+  engine.computeTimeline(events);
 
   // Frame 1: s1 (0..100) is complete, s2 has not started. s1 is baked into base.
   engine.renderAt(150);
@@ -223,11 +223,11 @@ test('completed strokes are baked once and not redrawn on every frame', () => {
 
 test('seeking backwards rebuilds the base buffer from scratch', () => {
   const { engine, drawnStrokes } = newEngine();
-  engine.events = [
+  const events = [
     addEvent('s1', '2025-01-01T00:00:00.000Z', 100),
     addEvent('s2', '2025-01-01T00:00:00.200Z', 100)
   ];
-  engine.computeTimeline();
+  engine.computeTimeline(events);
 
   // Play forward past both strokes: both end up baked into the base buffer.
   engine.renderAt(350);
@@ -243,13 +243,13 @@ test('seeking backwards rebuilds the base buffer from scratch', () => {
 
 test('a Remove forces a base rebuild that drops the removed stroke', () => {
   const { engine, drawnStrokes } = newEngine();
-  engine.events = [
+  const events = [
     addEvent('s1', '2025-01-01T00:00:00.000Z', 100),
     addEvent('s2', '2025-01-01T00:00:00.200Z', 100),
     // s1 is undone after both strokes have finished drawing (at ~400ms).
     { type: 'Remove', timestamp: '2025-01-01T00:00:00.400Z', stroke: { id: 's1', points: [] } }
   ];
-  engine.computeTimeline();
+  engine.computeTimeline(events);
 
   // Before the Remove: both strokes are baked.
   engine.renderAt(350);

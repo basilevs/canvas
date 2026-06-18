@@ -13,7 +13,6 @@ export class ReplayEngine {
     this.gapThresholdMs = config.gapThresholdMs ?? 3000;
     this.speed = config.speed ?? 1;
 
-    this.events = [];
     this.timeline = [];
     this.byCompletion = [];
     this.totalDurationMs = 0;
@@ -42,16 +41,17 @@ export class ReplayEngine {
 
   async loadHistory(boardName) {
     const events = await fetchAllHistory(boardName);
-    this.events = events.slice().sort(compareEvents);
-    this.computeTimeline();
+    this.computeTimeline(events.slice().sort(compareEvents));
   }
 
-  computeTimeline() {
+  // Builds the playback timeline from the raw event log. The events are only read
+  // here, so they are passed in rather than retained on the instance.
+  computeTimeline(events) {
     this.timeline = [];
     let cumulativeMs = 0;
     let previousWallMs = null;
 
-    for (const event of this.events) {
+    for (const event of events) {
       const type = event.type ?? event.Type;
       const stroke = event.stroke ?? event.Stroke;
       const strokeId = stroke.id ?? stroke.Id;
