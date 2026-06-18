@@ -51,6 +51,22 @@ class WhiteboardCanvas {
     this.replaying = false;
     this.devicePixelRatio = Math.max(window.devicePixelRatio || 1, 1);
 
+    // Remote cursors are painted on a separate transparent overlay stacked on
+    // top of the strokes canvas. This keeps frequent cursor movement from
+    // forcing a full redraw of the entire stroke history (expensive on mobile),
+    // since the two layers repaint independently. pointer-events: none lets
+    // input pass through to the strokes canvas below.
+    this.cursorCanvas = document.createElement('canvas');
+    const cursorStyle = this.cursorCanvas.style;
+    cursorStyle.position = 'absolute';
+    cursorStyle.top = '0';
+    cursorStyle.left = '0';
+    cursorStyle.width = '100%';
+    cursorStyle.height = '100%';
+    cursorStyle.pointerEvents = 'none';
+    this.canvas.parentNode.appendChild(this.cursorCanvas);
+    this.cursorContext = this.cursorCanvas.getContext('2d');
+
     this.canvas.addEventListener('pointerdown', this.#handlePointerDown);
     this.canvas.addEventListener('pointermove', this.#handlePointerMove);
     this.canvas.addEventListener('pointerup', this.#handlePointerUp);
@@ -68,8 +84,12 @@ class WhiteboardCanvas {
   // input so animation frames are not clobbered. Leaving replay repaints current state.
   setReplaying(value) {
     this.replaying = value;
-    if (!value) {
+    if (value) {
+      // Hide remote cursors while the replay engine animates the strokes layer.
+      this.#clearCursors();
+    } else {
       this.#render();
+      this.#renderCursors();
     }
   }
 
@@ -117,12 +137,12 @@ class WhiteboardCanvas {
       this.remoteCursors.set(userId, cursor);
     }
 
-    this.#render();
+    this.#renderCursors();
   }
 
   removeRemoteCursor(userId) {
     this.remoteCursors.delete(userId);
-    this.#render();
+    this.#renderCursors();
   }
 
   #handleResize = () => {
@@ -130,10 +150,14 @@ class WhiteboardCanvas {
     const width = Math.max(Math.floor(rect.width * this.devicePixelRatio), 1);
     const height = Math.max(Math.floor(rect.height * this.devicePixelRatio), 1);
 
-    if (this.canvas.width !== width || this.canvas.height !== height) {
+    if (this.canvas.width !== width || this.canvas.height !== height ||
+        this.cursorCanvas.width !== width || this.cursorCanvas.height !== height) {
       this.canvas.width = width;
       this.canvas.height = height;
+      this.cursorCanvas.width = width;
+      this.cursorCanvas.height = height;
       this.#render();
+      this.#renderCursors();
     }
   };
 
@@ -290,10 +314,27 @@ class WhiteboardCanvas {
       this.#drawStroke(this.previewStroke);
       context.restore();
     }
+  }
+
+  // Repaints only the cursor overlay, leaving the strokes layer untouched so a
+  // moving remote cursor doesn't trigger a full history redraw.
+  #renderCursors() {
+    this.#clearCursors();
+    if (this.replaying) {
+      return;
+    }
 
     for (const [userId, cursor] of this.remoteCursors.entries()) {
       this.#drawCursor(userId, cursor);
     }
+  }
+
+  #clearCursors() {
+    const context = this.cursorContext;
+    if (!context) {
+      return;
+    }
+    context.clearRect(0, 0, this.cursorCanvas.width, this.cursorCanvas.height);
   }
 
   #drawStroke(stroke) {
@@ -310,7 +351,7 @@ class WhiteboardCanvas {
   }
 
   #drawCursor(userId, cursor) {
-    const context = this.context;
+    const context = this.cursorContext;
     const color = colorFromUserId(userId);
     const x = cursor.x;
     const y = cursor.y;
