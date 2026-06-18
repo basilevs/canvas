@@ -5,6 +5,13 @@ namespace Canvas.Middleware;
 
 public sealed class ApiExceptionHandler : IExceptionHandler
 {
+    private readonly ILogger<ApiExceptionHandler> _logger;
+
+    public ApiExceptionHandler(ILogger<ApiExceptionHandler> logger)
+    {
+        _logger = logger;
+    }
+
     public async ValueTask<bool> TryHandleAsync(
         HttpContext httpContext,
         Exception exception,
@@ -17,6 +24,24 @@ public sealed class ApiExceptionHandler : IExceptionHandler
             UnauthorizedAccessException => (StatusCodes.Status403Forbidden, "Forbidden"),
             _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred")
         };
+
+        if (statusCode >= StatusCodes.Status500InternalServerError)
+        {
+            _logger.LogError(
+                exception,
+                "Unhandled exception processing {Method} {Path}",
+                httpContext.Request.Method,
+                httpContext.Request.Path);
+        }
+        else
+        {
+            _logger.LogWarning(
+                exception,
+                "Request failed with {StatusCode} for {Method} {Path}",
+                statusCode,
+                httpContext.Request.Method,
+                httpContext.Request.Path);
+        }
 
         if (httpContext.Response.HasStarted)
         {
