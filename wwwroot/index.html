@@ -15,15 +15,15 @@
         <canvas id="whiteboard-canvas" aria-label="Collaborative whiteboard canvas"></canvas>
       </div>
       <div class="toolbar-group toolbar-controls">
-        <label>
+        <label class="live-only">
           Color
           <input id="color-input" type="color" value="#1e88e5">
         </label>
-        <label>
+        <label class="live-only">
           Width
           <input id="width-input" type="range" min="1" max="24" value="4">
         </label>
-        <button id="btn-undo" type="button" class="secondary">↶ Undo</button>
+        <button id="btn-undo" type="button" class="secondary live-only">↶ Undo</button>
         <button id="btn-replay" type="button" class="secondary">▶ Replay</button>
         <button id="btn-replay-playpause" type="button" class="replay-only" hidden>⏸ Pause</button>
         <button id="btn-replay-stop" type="button" class="replay-only" hidden>⏹ Stop</button>

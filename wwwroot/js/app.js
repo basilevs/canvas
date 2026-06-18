@@ -21,6 +21,7 @@ const replayScrubber = document.getElementById('replay-scrubber');
 const replayTimestamp = document.getElementById('replay-timestamp');
 const replayControls = document.getElementById('replay-controls');
 const replayOnlyControls = document.querySelectorAll('.replay-only');
+const liveOnlyControls = document.querySelectorAll('.live-only');
 
 const state = {
   boardName: getBoardNameFromPath(),
@@ -137,9 +138,7 @@ function configureDrawingTools() {
 
 function configureUndo() {
   btnUndo.addEventListener('click', async () => {
-    // Block undo while a replay is actively in control of the canvas. Once
-    // playback has ended the canvas is live again, so undo is allowed.
-    if (!state.boardName || (state.replayEngine && !state.replayEnded)) {
+    if (!state.boardName || state.replayEngine) {
       return;
     }
 
@@ -242,16 +241,16 @@ async function startReplay() {
     return;
   }
 
-  setReplayUiVisible(true);
+  refreshToolbar();
   whiteboardCanvas.setReplaying(true);
   engine.play();
 }
 
 async function exitReplay() {
-  setReplayUiVisible(false);
   state.replayEngine = null;
   state.replayPaused = false;
   state.replayEnded = false;
+  refreshToolbar();
 
   await resyncLiveCanvas();
 }
@@ -270,18 +269,30 @@ async function resyncLiveCanvas() {
   }
 }
 
-function setReplayUiVisible(visible) {
-  replayControls.hidden = !visible;
+// Reflects the current replay state in the toolbar. There are three modes:
+//   - live:           no engine; drawing tools shown, replay controls hidden.
+//   - actively replaying / ended-but-live: an engine is present, so the replay
+//                     controls are shown and the live-only drawing tools (color,
+//                     width, undo) are hidden until the user fully exits replay.
+function refreshToolbar() {
+  const replayMode = state.replayEngine != null;
+
+  replayControls.hidden = !replayMode;
   // Toggle each element's `hidden` attribute individually. A tidier approach —
   // injecting a `.replay-only { display: none }` <style> and flipping its
   // sheet.disabled — was reverted because the inline stylesheet violates our
   // strict CSP (style-src 'self'; no inline styles). See commit 542ed13.
   for (const control of replayOnlyControls) {
-    control.hidden = !visible;
+    control.hidden = !replayMode;
   }
 
-  btnReplay.hidden = visible;
-  btnUndo.disabled = visible;
+  // Live-only tools (color, width, undo) are meaningless whenever a replay is
+  // active — the local drawing they configure is unavailable until replay exits.
+  for (const control of liveOnlyControls) {
+    control.hidden = replayMode;
+  }
+
+  btnReplay.hidden = replayMode;
 }
 
 function formatTimestamp(timestamp) {
