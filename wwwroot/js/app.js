@@ -234,7 +234,8 @@ async function startReplay() {
   btnReplayPlayPause.textContent = '⏸ Pause';
 
   try {
-    await engine.loadHistory(state.boardName);
+    const history = await fetchAllHistory(state.boardName);
+    engine.computeTimeline(history);
   } catch (error) {
     state.replayEngine = null;
     updateStatus(error?.message ?? 'Failed to load replay');

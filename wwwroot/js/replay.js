@@ -1,4 +1,3 @@
-import { fetchAllHistory } from './history.js';
 import { drawStrokePath } from './canvas.js';
 
 const DEFAULT_COLOR = '#1e88e5';
@@ -39,14 +38,12 @@ export class ReplayEngine {
     this.tick = this.tick.bind(this);
   }
 
-  async loadHistory(boardName) {
-    const events = await fetchAllHistory(boardName);
-    this.computeTimeline(events.slice().sort(compareEvents));
-  }
-
-  // Builds the playback timeline from the raw event log. The events are only read
-  // here, so they are passed in rather than retained on the instance.
+  // Builds the playback timeline from the raw event log. History is supplied by
+  // the caller (the engine does not fetch it) and may arrive in any order, so it
+  // is sorted chronologically here. The events are only read, so a sorted copy is
+  // used rather than mutating or retaining the caller's array.
   computeTimeline(events) {
+    events = events.slice().sort(compareEvents);
     this.timeline = [];
     let cumulativeMs = 0;
     let previousWallMs = null;
