@@ -229,6 +229,10 @@ async function exitReplay() {
 
 function setReplayUiVisible(visible) {
   replayControls.hidden = !visible;
+  // Toggle each element's `hidden` attribute individually. A tidier approach —
+  // injecting a `.replay-only { display: none }` <style> and flipping its
+  // sheet.disabled — was reverted because the inline stylesheet violates our
+  // strict CSP (style-src 'self'; no inline styles). See commit 542ed13.
   for (const control of replayOnlyControls) {
     control.hidden = !visible;
   }
