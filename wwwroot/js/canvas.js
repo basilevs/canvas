@@ -36,14 +36,14 @@ class WhiteboardCanvas {
   setReplaying(value) {
     this.replaying = value;
     if (!value) {
-      this.render();
+      this.#render();
     }
   }
 
   setSnapshot(strokes) {
     this.confirmedStrokes = Array.isArray(strokes) ? [...strokes] : [];
     this.previewStroke = null;
-    this.render();
+    this.#render();
   }
 
   commitStroke(stroke) {
@@ -58,7 +58,7 @@ class WhiteboardCanvas {
       this.confirmedStrokes.push(normalizeStroke(stroke));
     }
 
-    this.render();
+    this.#render();
   }
 
   removeStroke(strokeId) {
@@ -69,7 +69,7 @@ class WhiteboardCanvas {
     const index = this.confirmedStrokes.findIndex(existing => getStrokeId(existing) === strokeId);
     if (index !== -1) {
       this.confirmedStrokes.splice(index, 1);
-      this.render();
+      this.#render();
     }
   }
 
@@ -84,12 +84,12 @@ class WhiteboardCanvas {
       this.remoteCursors.set(userId, cursor);
     }
 
-    this.render();
+    this.#render();
   }
 
   removeRemoteCursor(userId) {
     this.remoteCursors.delete(userId);
-    this.render();
+    this.#render();
   }
 
   #handleResize = () => {
@@ -100,7 +100,7 @@ class WhiteboardCanvas {
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width;
       this.canvas.height = height;
-      this.render();
+      this.#render();
     }
   };
 
@@ -118,16 +118,16 @@ class WhiteboardCanvas {
       startTime: performance.now()
     };
 
-    this.appendPoint(event);
+    this.#appendPoint(event);
     this.previewStroke = this.currentStroke;
-    this.render();
+    this.#render();
   };
 
   #handlePointerMove = (event) => {
-    this.updateCursor(event);
-    this.appendPoint(event);
+    this.#updateCursor(event);
+    this.#appendPoint(event);
     this.previewStroke = this.currentStroke;
-    this.render();
+    this.#render();
   };
 
   #handlePointerUp = (event) => {
@@ -135,20 +135,20 @@ class WhiteboardCanvas {
       return;
     }
 
-    this.appendPoint(event);
+    this.#appendPoint(event);
     const completedStroke = this.currentStroke;
     this.currentStroke = null;
     this.previewStroke = completedStroke;
-    this.render();
+    this.#render();
     this.handlers.onStrokeCompleted?.(completedStroke);
   };
 
-  appendPoint(event) {
+  #appendPoint(event) {
     if (!this.currentStroke) {
       return;
     }
 
-    const point = this.toCanvasPoint(event);
+    const point = this.#toCanvasPoint(event);
     const points = this.currentStroke.points;
     const lastPoint = points[points.length - 1];
     if (lastPoint && lastPoint.x === point.x && lastPoint.y === point.y) {
@@ -163,12 +163,12 @@ class WhiteboardCanvas {
     });
   }
 
-  updateCursor(event) {
-    const cursor = this.toCanvasPoint(event);
+  #updateCursor(event) {
+    const cursor = this.#toCanvasPoint(event);
     this.handlers.onCursorMoved?.(cursor.x, cursor.y);
   }
 
-  toCanvasPoint(event) {
+  #toCanvasPoint(event) {
     const rect = this.canvas.getBoundingClientRect();
     return {
       x: event.clientX - rect.left,
@@ -176,7 +176,7 @@ class WhiteboardCanvas {
     };
   }
 
-  render() {
+  #render() {
     const context = this.context;
     if (!context || this.replaying) {
       return;
@@ -189,22 +189,22 @@ class WhiteboardCanvas {
     context.fillRect(0, 0, width, height);
 
     for (const stroke of this.confirmedStrokes) {
-      this.drawStroke(stroke);
+      this.#drawStroke(stroke);
     }
 
     if (this.previewStroke) {
       context.save();
       context.globalAlpha = 0.85;
-      this.drawStroke(this.previewStroke);
+      this.#drawStroke(this.previewStroke);
       context.restore();
     }
 
     for (const [userId, cursor] of this.remoteCursors.entries()) {
-      this.drawCursor(userId, cursor);
+      this.#drawCursor(userId, cursor);
     }
   }
 
-  drawStroke(stroke) {
+  #drawStroke(stroke) {
     const points = stroke.points ?? stroke.Points ?? [];
     if (points.length === 0) {
       return;
@@ -225,7 +225,7 @@ class WhiteboardCanvas {
     context.stroke();
   }
 
-  drawCursor(userId, cursor) {
+  #drawCursor(userId, cursor) {
     const context = this.context;
     const color = colorFromUserId(userId);
     const x = cursor.x;
