@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 globalThis.getComputedStyle = () => ({ backgroundColor: '#ffffff' });
 
 const { ReplayEngine } = await import('../wwwroot/js/replay.js');
+const { drawStrokePath } = await import('../wwwroot/js/canvas.js');
 
 // Builds a recording 2D-context stub. Every stroke() is captured into the shared
 // `drawnStrokes` array tagged with its role, so a test can tell strokes painted
@@ -42,7 +43,13 @@ function buildContext(canvas, role, drawnStrokes) {
     lineTo(x, y) {
       current.points.push([x, y]);
     },
+    arc(x, y) {
+      current.points.push([x, y]);
+    },
     stroke() {
+      drawnStrokes.push(current);
+    },
+    fill() {
       drawnStrokes.push(current);
     }
   };
@@ -260,4 +267,45 @@ test('a Remove forces a base rebuild that drops the removed stroke', () => {
   const frame = countByRole(drawnStrokes);
   assert.equal(frame.live, 0, 'no stroke is in progress at t=450');
   assert.equal(frame.base, 1, 'base is rebuilt with s2 only after s1 is removed');
+});
+
+// Regression: a single click/tap produces a one-point stroke (the pointerup at
+// the same coordinates is de-duplicated). drawStrokePath must render it as a
+// filled dot, otherwise single taps leave no mark on the canvas.
+function recordingContext() {
+  const calls = [];
+  return {
+    calls,
+    strokeStyle: '',
+    fillStyle: '',
+    lineWidth: 0,
+    lineCap: '',
+    lineJoin: '',
+    beginPath() {},
+    moveTo() {},
+    lineTo() {},
+    stroke() { calls.push('stroke'); },
+    arc() { calls.push('arc'); },
+    fill() { calls.push('fill'); }
+  };
+}
+
+test('a single-point stroke renders as a filled dot', () => {
+  const context = recordingContext();
+  drawStrokePath(context, [{ x: 5, y: 5, timeOffset: 0 }], { dpr: 1, color: '#000', baseWidth: 4 });
+
+  assert.ok(context.calls.includes('fill'), 'an isolated point must be filled as a dot');
+  assert.ok(!context.calls.includes('stroke'), 'a single point has no segment to stroke');
+});
+
+test('a multi-point stroke strokes segments and draws no dot', () => {
+  const context = recordingContext();
+  drawStrokePath(
+    context,
+    [{ x: 0, y: 0, timeOffset: 0 }, { x: 10, y: 10, timeOffset: 10 }],
+    { dpr: 1, color: '#000', baseWidth: 4 }
+  );
+
+  assert.ok(context.calls.includes('stroke'), 'consecutive points are stroked as a segment');
+  assert.ok(!context.calls.includes('fill'), 'a stroked path must not also draw a dot');
 });

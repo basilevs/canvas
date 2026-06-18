@@ -441,6 +441,8 @@ export function drawStrokePath(context, points, { dpr, color, baseWidth, upToMs 
   };
 
   let previous = null;
+  let drewSegment = false;
+  let lastVisible = null;
   for (const point of points) {
     const offset = point.timeOffset ?? point.TimeOffset ?? 0;
     if (offset > upToMs) {
@@ -459,8 +461,21 @@ export function drawStrokePath(context, points, { dpr, color, baseWidth, upToMs 
       context.moveTo(previous.x, previous.y);
       context.lineTo(current.x, current.y);
       context.stroke();
+      drewSegment = true;
     }
 
     previous = current;
+    lastVisible = current;
+  }
+
+  // A single click/tap (or the first frame of a replayed stroke) yields one
+  // isolated point with no segment to stroke, so render it as a filled dot the
+  // size of the line at that point. Without this, single taps leave no mark.
+  if (!drewSegment && lastVisible) {
+    const radius = Math.max(baseWidth * lastVisible.factor * dpr, dpr) / 2;
+    context.beginPath();
+    context.fillStyle = color;
+    context.arc(lastVisible.x, lastVisible.y, radius, 0, Math.PI * 2);
+    context.fill();
   }
 }
