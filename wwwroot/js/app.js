@@ -28,7 +28,11 @@ const state = {
   knownNames: new Map(),
   connectedUsers: new Map(),
   replayEngine: null,
-  replayPaused: false
+  replayPaused: false,
+  // True once playback has reached the end: the engine is parked at the final
+  // frame and still selectable via the controls, but the canvas has been handed
+  // back to the live board so remote strokes resume showing.
+  replayEnded: false
 };
 
 const whiteboardCanvas = createWhiteboardCanvas(canvasElement, {
@@ -133,7 +137,9 @@ function configureDrawingTools() {
 
 function configureUndo() {
   btnUndo.addEventListener('click', async () => {
-    if (!state.boardName || state.replayEngine) {
+    // Block undo while a replay is actively in control of the canvas. Once
+    // playback has ended the canvas is live again, so undo is allowed.
+    if (!state.boardName || (state.replayEngine && !state.replayEnded)) {
       return;
     }
 
@@ -154,6 +160,7 @@ function configureReplay() {
     }
 
     if (state.replayPaused) {
+      reenterReplayIfEnded();
       state.replayEngine.resume();
       state.replayPaused = false;
       btnReplayPlayPause.textContent = '⏸ Pause';
@@ -169,12 +176,29 @@ function configureReplay() {
   });
 
   replayScrubber.addEventListener('input', () => {
-    state.replayEngine?.seek(Number(replayScrubber.value));
+    if (!state.replayEngine) {
+      return;
+    }
+
+    reenterReplayIfEnded();
+    state.replayEngine.seek(Number(replayScrubber.value));
   });
 
   replaySpeedSelect.addEventListener('change', () => {
     state.replayEngine?.setSpeed(Number(replaySpeedSelect.value));
   });
+}
+
+// After playback reached the end the canvas went live (replayEnded). Playing or
+// scrubbing again must hand the canvas back to the ReplayEngine before it draws,
+// otherwise live rendering and the engine would fight over the shared context.
+function reenterReplayIfEnded() {
+  if (!state.replayEnded) {
+    return;
+  }
+
+  state.replayEnded = false;
+  whiteboardCanvas.setReplaying(true);
 }
 
 async function startReplay() {
@@ -193,9 +217,16 @@ async function startReplay() {
     replayTimestamp.textContent = formatTimestamp(timestamp);
   };
   engine.onStop = () => exitReplay();
+  // Reaching the end of the history means we have caught up to "now": hand the
+  // canvas back to the live board so remote strokes resume showing and the board
+  // updates incrementally again, while keeping the replay controls visible so the
+  // user can still scrub back or replay. The engine stays parked at the final
+  // frame; playing or scrubbing again re-enters replay mode (see configureReplay).
   engine.onEnd = () => {
     state.replayPaused = true;
+    state.replayEnded = true;
     btnReplayPlayPause.textContent = '▶ Play';
+    resyncLiveCanvas();
   };
 
   state.replayEngine = engine;
@@ -219,8 +250,15 @@ async function exitReplay() {
   setReplayUiVisible(false);
   state.replayEngine = null;
   state.replayPaused = false;
+  state.replayEnded = false;
 
-  // Resync the live canvas from the authoritative log before handing control back.
+  await resyncLiveCanvas();
+}
+
+// Hands the canvas back to the live board: resync from the authoritative log,
+// then re-enable live rendering and input. Shared by Stop (exitReplay) and the
+// end-of-playback transition (engine.onEnd).
+async function resyncLiveCanvas() {
   try {
     const history = await fetchAllHistory(state.boardName);
     whiteboardCanvas.setReplaying(false);
