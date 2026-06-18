@@ -1,5 +1,38 @@
 const DEFAULT_COLOR = '#1e88e5';
 
+// On-screen debug log for diagnosing input on mobile, where there is no easy
+// access to the dev-tools console. Flip DEBUG to true to surface a live panel
+// of pointer events; left in place because it is handy for future input bugs.
+const DEBUG = false;
+let debugPanel = null;
+function debugLog(...args) {
+  if (!DEBUG) {
+    return;
+  }
+  console.log(...args);
+  if (!debugPanel) {
+    debugPanel = document.createElement('div');
+    const s = debugPanel.style;
+    s.position = 'fixed';
+    s.left = '0';
+    s.right = '0';
+    s.bottom = '0';
+    s.maxHeight = '40%';
+    s.overflowY = 'auto';
+    s.zIndex = '99999';
+    s.background = 'rgba(0, 0, 0, 0.8)';
+    s.color = '#0f0';
+    s.font = '11px/1.3 monospace';
+    s.padding = '4px';
+    s.whiteSpace = 'pre-wrap';
+    document.body.appendChild(debugPanel);
+  }
+  const line = args
+    .map(arg => (typeof arg === 'string' ? arg : JSON.stringify(arg)))
+    .join(' ');
+  debugPanel.textContent = `${line}\n${debugPanel.textContent}`.slice(0, 4000);
+}
+
 export function createWhiteboardCanvas(canvasElement, handlers = {}) {
   return new WhiteboardCanvas(canvasElement, handlers);
 }
@@ -109,13 +142,20 @@ class WhiteboardCanvas {
       return;
     }
 
+    debugLog('[ptr] down start', {
+      type: event.pointerType,
+      pressure: Number(event.pressure?.toFixed?.(2) ?? event.pressure),
+      button: event.button
+    });
     this.canvas.setPointerCapture(event.pointerId);
     this.currentStroke = {
       id: generateStrokeId(),
       points: [],
       color: this.currentColor,
       width: this.currentWidth,
-      startTime: performance.now()
+      startTime: performance.now(),
+      pointerType: event.pointerType,
+      startPressure: event.pressure
     };
 
     this.#appendPoint(event);
@@ -124,6 +164,10 @@ class WhiteboardCanvas {
   };
 
   #handlePointerMove = (event) => {
+    if (this.currentStroke && event.pointerType !== this.currentStroke.pointerType) {
+      debugLog('[ptr] DROP move type', { type: event.pointerType, active: this.currentStroke.pointerType });
+      return;
+    }
     this.#updateCursor(event);
     this.#appendPoint(event);
     this.previewStroke = this.currentStroke;
@@ -132,6 +176,10 @@ class WhiteboardCanvas {
 
   #handlePointerUp = (event) => {
     if (!this.currentStroke) {
+      return;
+    }
+    if (event.pointerType !== this.currentStroke.pointerType) {
+      debugLog('[ptr] DROP up type', { type: event.pointerType, active: this.currentStroke.pointerType });
       return;
     }
 
@@ -155,10 +203,54 @@ class WhiteboardCanvas {
       return;
     }
 
+    // Ignore any sample whose pointer type differs from the one that started
+    // the stroke (e.g. the OS synthesising stray mouse moves during a pen or
+    // touch stroke), which would otherwise pollute the stroke with bogus
+    // positions and pressures.
+    if (event.pointerType !== this.currentStroke.pointerType) {
+      debugLog('[ptr] DROP point type', { type: event.pointerType, active: this.currentStroke.pointerType });
+      return;
+    }
+
+    const pressure = event.pressure;
+
+    debugLog('[ptr]', {
+      type: event.pointerType,
+      p: Number(pressure?.toFixed?.(3) ?? pressure),
+      n: points.length
+    });
+
+    // A pen on Android intermittently spikes to a spurious pressure of exactly
+    // 1.0 mid-stroke. Touch, by contrast, legitimately reports a constant 1.0,
+    // so only drop the spike when the stroke started at a different pressure.
+    if (pressure === 1 && this.currentStroke.startPressure !== 1) {
+      debugLog('[ptr] DROP pressure==1', { type: event.pointerType, start: this.currentStroke.startPressure });
+      return;
+    }
+
+    // The pen reports a spurious high pressure on the very first contact
+    // point. Record it with no pressure, then back-fill it from the first
+    // subsequent point so the stroke doesn't start with a fat blob.
+    if (points.length === 0) {
+      this.currentStroke.backfillFirstPressure = true;
+      points.push({
+        x: point.x,
+        y: point.y,
+        pressure: null,
+        timeOffset: 0
+      });
+      return;
+    }
+
+    if (this.currentStroke.backfillFirstPressure) {
+      points[0].pressure = pressure;
+      this.currentStroke.backfillFirstPressure = false;
+    }
+
     points.push({
       x: point.x,
       y: point.y,
-      pressure: event.pressure > 0 ? event.pressure : null,
+      pressure,
       timeOffset: Math.min(65535, Math.max(0, Math.round(performance.now() - this.currentStroke.startTime)))
     });
   }
@@ -210,19 +302,11 @@ class WhiteboardCanvas {
       return;
     }
 
-    const context = this.context;
-    context.strokeStyle = stroke.color ?? stroke.Color ?? DEFAULT_COLOR;
-    context.lineWidth = (stroke.width ?? stroke.Width ?? 4) * this.devicePixelRatio;
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
-    context.beginPath();
-
-    context.moveTo(points[0].x * this.devicePixelRatio, points[0].y * this.devicePixelRatio);
-    for (let i = 1; i < points.length; i += 1) {
-      context.lineTo(points[i].x * this.devicePixelRatio, points[i].y * this.devicePixelRatio);
-    }
-
-    context.stroke();
+    drawStrokePath(this.context, points, {
+      dpr: this.devicePixelRatio,
+      color: stroke.color ?? stroke.Color ?? DEFAULT_COLOR,
+      baseWidth: stroke.width ?? stroke.Width ?? 4
+    });
   }
 
   #drawCursor(userId, cursor) {
@@ -289,4 +373,49 @@ export function colorFromUserId(userId) {
 
   const hue = Math.abs(hash) % 360;
   return `hsl(${hue} 75% 45%)`;
+}
+
+// Draws a stroke as a sequence of per-segment paths so line width can follow
+// pen pressure. Each point's pressure (0..1, or null when the input device
+// reports none, e.g. mouse without force) scales baseWidth, with null treated
+// as full pressure so non-pressure input keeps the configured width. Canvas 2D
+// cannot vary lineWidth within a single path, hence one stroke() per segment.
+// upToMs limits drawing to points at or before a given time offset (replay).
+export function drawStrokePath(context, points, { dpr, color, baseWidth, upToMs = Infinity }) {
+  if (points.length === 0) {
+    return;
+  }
+
+  context.strokeStyle = color;
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+
+  const pressureFactor = point => {
+    const pressure = point.pressure ?? point.Pressure;
+    return pressure == null ? 1 : pressure;
+  };
+
+  let previous = null;
+  for (const point of points) {
+    const offset = point.timeOffset ?? point.TimeOffset ?? 0;
+    if (offset > upToMs) {
+      break;
+    }
+
+    const current = {
+      x: (point.x ?? point.X) * dpr,
+      y: (point.y ?? point.Y) * dpr,
+      factor: pressureFactor(point)
+    };
+
+    if (previous) {
+      context.beginPath();
+      context.lineWidth = baseWidth * ((previous.factor + current.factor) / 2) * dpr;
+      context.moveTo(previous.x, previous.y);
+      context.lineTo(current.x, current.y);
+      context.stroke();
+    }
+
+    previous = current;
+  }
 }

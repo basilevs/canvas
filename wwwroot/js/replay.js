@@ -1,4 +1,5 @@
 import { fetchAllHistory } from './history.js';
+import { drawStrokePath } from './canvas.js';
 
 const DEFAULT_COLOR = '#1e88e5';
 
@@ -192,34 +193,12 @@ export class ReplayEngine {
       return;
     }
 
-    const dpr = this.devicePixelRatio();
-    const context = this.context;
-    context.strokeStyle = stroke.color ?? stroke.Color ?? DEFAULT_COLOR;
-    context.lineWidth = (stroke.width ?? stroke.Width ?? 4) * dpr;
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
-    context.beginPath();
-
-    let started = false;
-    for (const point of points) {
-      const offset = point.timeOffset ?? point.TimeOffset ?? 0;
-      if (offset > upToMs) {
-        break;
-      }
-
-      const x = (point.x ?? point.X) * dpr;
-      const y = (point.y ?? point.Y) * dpr;
-      if (!started) {
-        context.moveTo(x, y);
-        started = true;
-      } else {
-        context.lineTo(x, y);
-      }
-    }
-
-    if (started) {
-      context.stroke();
-    }
+    drawStrokePath(this.context, points, {
+      dpr: this.devicePixelRatio(),
+      color: stroke.color ?? stroke.Color ?? DEFAULT_COLOR,
+      baseWidth: stroke.width ?? stroke.Width ?? 4,
+      upToMs
+    });
   }
 
   clear() {
