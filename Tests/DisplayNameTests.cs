@@ -1,6 +1,7 @@
 using Canvas.Hubs;
 using Canvas.Services;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Canvas.Tests;
 
@@ -48,7 +49,7 @@ public sealed class DisplayNameTests
         context = new TestHubCallerContext("conn-" + Guid.NewGuid().ToString("N"), "user-1");
         groups = new TestGroupManager();
 
-        var hub = new WhiteboardHub(boardService, userProfileService, new InMemoryStrokeEventService())
+        var hub = new WhiteboardHub(boardService, userProfileService, new InMemoryStrokeEventService(), NullLogger<WhiteboardHub>.Instance)
         {
             Context = context,
             Clients = new TestHubCallerClients(caller, group),

@@ -15,15 +15,18 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
     private readonly IBoardService _boardService;
     private readonly IUserProfileService _userProfileService;
     private readonly IStrokeEventService _strokeEventService;
+    private readonly ILogger<WhiteboardHub> _logger;
 
     public WhiteboardHub(
         IBoardService boardService,
         IUserProfileService userProfileService,
-        IStrokeEventService strokeEventService)
+        IStrokeEventService strokeEventService,
+        ILogger<WhiteboardHub> logger)
     {
         _boardService = boardService;
         _userProfileService = userProfileService;
         _strokeEventService = strokeEventService;
+        _logger = logger;
     }
 
     public async Task JoinBoard(string boardName, DateTime sinceTimestamp)
@@ -194,6 +197,18 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
+        // SignalR drops a connection on protocol-level failures (e.g. a stroke
+        // payload exceeding MaximumReceiveMessageSize) before any hub method is
+        // dispatched, surfacing the cause only here at Debug. Log it ourselves so
+        // these disconnects are visible without enabling SignalR Debug logging.
+        if (exception is not null)
+        {
+            _logger.LogError(
+                exception,
+                "Connection {ConnectionId} disconnected with an error.",
+                Context.ConnectionId);
+        }
+
         if (Connections.TryRemove(Context.ConnectionId, out var connection))
         {
             await Clients.Group(connection.BoardId).UserLeft(connection.UserId);

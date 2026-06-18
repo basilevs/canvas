@@ -2,6 +2,7 @@ using Canvas.Dtos;
 using Canvas.Hubs;
 using Canvas.Models;
 using Canvas.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Driver;
 
 namespace Canvas.Tests;
@@ -139,7 +140,7 @@ public sealed class UndoTests
         var caller = new TestWhiteboardClient();
         var context = new TestHubCallerContext("conn-" + Guid.NewGuid().ToString("N"), userId);
 
-        var hub = new WhiteboardHub(_boardService, _userProfiles, _strokeEvents)
+        var hub = new WhiteboardHub(_boardService, _userProfiles, _strokeEvents, NullLogger<WhiteboardHub>.Instance)
         {
             Context = context,
             Clients = new TestHubCallerClients(caller, _group),

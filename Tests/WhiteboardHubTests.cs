@@ -2,6 +2,7 @@ using Canvas.Dtos;
 using Canvas.Hubs;
 using Canvas.Models;
 using Canvas.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Canvas.Tests;
 
@@ -123,7 +124,7 @@ public sealed class WhiteboardHubTests
         context = new TestHubCallerContext("conn-" + Guid.NewGuid().ToString("N"), "user-1");
         groups = new TestGroupManager();
 
-        var hub = new WhiteboardHub(boardService, userProfileService, strokeEventService)
+        var hub = new WhiteboardHub(boardService, userProfileService, strokeEventService, NullLogger<WhiteboardHub>.Instance)
         {
             Context = context,
             Clients = new TestHubCallerClients(caller, group),
