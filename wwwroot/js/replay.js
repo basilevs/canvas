@@ -23,6 +23,7 @@ export class ReplayEngine {
 
     this.onProgress = null;
     this.onStop = null;
+    this.onEnd = null;
 
     this.tick = this.tick.bind(this);
   }
@@ -95,6 +96,11 @@ export class ReplayEngine {
       return;
     }
 
+    // Replaying after reaching the end restarts from the beginning.
+    if (this.elapsedMs >= this.totalDurationMs) {
+      this.elapsedMs = 0;
+    }
+
     this.playing = true;
     this.lastFrame = performance.now();
     this.rafId = requestAnimationFrame(this.tick);
@@ -136,6 +142,7 @@ export class ReplayEngine {
       this.renderAt(this.elapsedMs);
       this.reportProgress();
       this.playing = false;
+      this.onEnd?.();
       return;
     }
 

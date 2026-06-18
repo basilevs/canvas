@@ -193,6 +193,10 @@ async function startReplay() {
     replayTimestamp.textContent = formatTimestamp(timestamp);
   };
   engine.onStop = () => exitReplay();
+  engine.onEnd = () => {
+    state.replayPaused = true;
+    btnReplayPlayPause.textContent = '▶ Play';
+  };
 
   state.replayEngine = engine;
   state.replayPaused = false;
