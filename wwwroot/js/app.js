@@ -1,4 +1,4 @@
-import { createWhiteboardCanvas } from './canvas.js';
+import { createWhiteboardCanvas, colorFromUserId } from './canvas.js';
 import { createWhiteboardConnection } from './connection.js';
 import { fetchAllHistory, foldEvents, lastEventTimestamp } from './history.js';
 import { ReplayEngine } from './replay.js';
@@ -298,8 +298,16 @@ function renderUsers() {
   usersList.replaceChildren();
   for (const [userId, displayName] of state.connectedUsers.entries()) {
     const item = document.createElement('li');
-    item.textContent = displayName;
     item.dataset.userId = userId;
+
+    const swatch = document.createElement('span');
+    swatch.className = 'user-swatch';
+    // Color is per-user and must match the cursor color drawn on the canvas,
+    // so it is set via the CSSOM rather than a static stylesheet rule.
+    swatch.style.backgroundColor = colorFromUserId(userId);
+    item.appendChild(swatch);
+
+    item.appendChild(document.createTextNode(displayName));
     usersList.appendChild(item);
   }
 }

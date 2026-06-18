@@ -59,6 +59,15 @@
   padding-left: 1rem;
 }
 
+.user-swatch {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  vertical-align: baseline;
+}
+
 .status-text {
   margin-top: 1rem;
   min-height: 1.5rem;

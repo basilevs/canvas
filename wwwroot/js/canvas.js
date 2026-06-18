@@ -261,7 +261,7 @@ function getStrokeId(stroke) {
   return stroke.id ?? stroke.Id;
 }
 
-function colorFromUserId(userId) {
+export function colorFromUserId(userId) {
   let hash = 0;
   for (let i = 0; i < userId.length; i += 1) {
     hash = (hash * 31 + userId.charCodeAt(i)) | 0;
