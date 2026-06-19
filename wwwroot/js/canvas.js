@@ -1,4 +1,5 @@
 const DEFAULT_COLOR = '#1e88e5';
+const SIMPLIFY_THRESHOLD_CSS_PX = 5;
 
 // On-screen debug log for diagnosing input on mobile, where there is no easy
 // access to the dev-tools console. Flip DEBUG to true to surface a live panel
@@ -215,6 +216,11 @@ class WhiteboardCanvas {
     this.#appendPoint(event);
     const completedStroke = this.currentStroke;
     this.currentStroke = null;
+    completedStroke.points = simplifyPointsVisvalingamWhyatt(
+      completedStroke.points,
+      SIMPLIFY_THRESHOLD_CSS_PX,
+      completedStroke.width ?? completedStroke.Width ?? 4
+    );
     this.previewStroke = completedStroke;
     this.#renderVolatile();
     this.handlers.onStrokeCompleted?.(completedStroke);
@@ -405,6 +411,117 @@ function normalizeStroke(stroke) {
 
 function getStrokeId(stroke) {
   return stroke.id ?? stroke.Id;
+}
+
+function simplifyPointsVisvalingamWhyatt(points, thresholdCssPx, baseWidthCssPx = 4) {
+  if (!Array.isArray(points) || points.length <= 2) {
+    return points;
+  }
+
+  // Keep the public threshold in CSS pixels and convert to an area-like scale
+  // used by the VW triangle score.
+  const t = Math.max(0, thresholdCssPx);
+  const areaThreshold = 0.5 * t * t;
+  const kept = points.map(point => ({ point, removed: false }));
+
+  while (true) {
+    let minScore = Infinity;
+    let minIndex = -1;
+
+    for (let i = 1; i < kept.length - 1; i += 1) {
+      if (kept[i].removed) {
+        continue;
+      }
+
+      const prev = findPreviousKept(kept, i);
+      const next = findNextKept(kept, i);
+      if (prev === -1 || next === -1) {
+        continue;
+      }
+
+      const score = triangleScoreWithPressure(
+        kept[prev].point,
+        kept[i].point,
+        kept[next].point,
+        baseWidthCssPx
+      );
+      if (score < minScore) {
+        minScore = score;
+        minIndex = i;
+      }
+    }
+
+    if (minIndex === -1 || minScore >= areaThreshold) {
+      break;
+    }
+
+    kept[minIndex].removed = true;
+  }
+
+  return kept.filter(entry => !entry.removed).map(entry => entry.point);
+}
+
+function findPreviousKept(entries, index) {
+  for (let i = index - 1; i >= 0; i -= 1) {
+    if (!entries[i].removed) {
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+function findNextKept(entries, index) {
+  for (let i = index + 1; i < entries.length; i += 1) {
+    if (!entries[i].removed) {
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+function triangleArea(a, b, c) {
+  const ax = a.x ?? a.X;
+  const ay = a.y ?? a.Y;
+  const bx = b.x ?? b.X;
+  const by = b.y ?? b.Y;
+  const cx = c.x ?? c.X;
+  const cy = c.y ?? c.Y;
+
+  return Math.abs((ax * (by - cy) + bx * (cy - ay) + cx * (ay - by)) / 2);
+}
+
+function triangleScoreWithPressure(a, b, c, baseWidthCssPx) {
+  const geometryArea = triangleArea(a, b, c);
+  const chordLength = pointDistance(a, c);
+  const wa = momentaryWidthCssPx(a, baseWidthCssPx);
+  const wb = momentaryWidthCssPx(b, baseWidthCssPx);
+  const wc = momentaryWidthCssPx(c, baseWidthCssPx);
+  const widthCurvature = Math.abs(wa - (2 * wb) + wc);
+  const widthArea = 0.5 * chordLength * widthCurvature;
+  return geometryArea + widthArea;
+}
+
+function momentaryWidthCssPx(point, baseWidthCssPx) {
+  return Math.max(0, baseWidthCssPx) * pointPressureFactor(point);
+}
+
+function pointPressureFactor(point) {
+  const pressure = point.pressure ?? point.Pressure;
+  if (pressure == null) {
+    return 1;
+  }
+
+  return Math.min(1, Math.max(0, pressure));
+}
+
+function pointDistance(a, b) {
+  const ax = a.x ?? a.X;
+  const ay = a.y ?? a.Y;
+  const bx = b.x ?? b.X;
+  const by = b.y ?? b.Y;
+  return Math.hypot(ax - bx, ay - by);
 }
 
 // crypto.randomUUID() is only available in secure contexts (HTTPS or
