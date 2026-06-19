@@ -20,7 +20,7 @@ public interface IUserProfileService
     Task<string?> GetLastBoardAsync(string userId, CancellationToken cancellationToken);
 }
 
-public sealed class UserProfileService : IUserProfileService
+public sealed class UserProfileService : IUserProfileService, IHostedService
 {
     private const string DefaultDisplayName = "Anonymous";
     private readonly IMongoCollection<UserProfile> _users;
@@ -144,12 +144,17 @@ public sealed class UserProfileService : IUserProfileService
         return profile?.LastBoardName;
     }
 
-    public Task EnsureIndexesAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         var userIdIndex = new CreateIndexModel<UserProfile>(
             Builders<UserProfile>.IndexKeys.Ascending(profile => profile.UserId),
             new CreateIndexOptions { Unique = true, Name = "ux_users_user_id" });
 
-        return _users.Indexes.CreateOneAsync(userIdIndex, cancellationToken: cancellationToken);
+        await _users.Indexes.CreateOneAsync(userIdIndex, cancellationToken: cancellationToken);
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        return Task.CompletedTask;
     }
 }

@@ -8,8 +8,8 @@ class WhiteboardConnection {
     this.boardName = null;
     this.sinceTimestamp = new Date(0).toISOString();
     this.pendingStrokes = new Map();
-    this.cursorMoveInFlight = false;
     this.pendingCursorMove = null;
+    this.cursorMoveDrainPromise = null;
     this.started = false;
     this.restartPromise = null;
     this.connection = new signalR.HubConnectionBuilder()
@@ -135,26 +135,30 @@ class WhiteboardConnection {
       return;
     }
 
-    if (this.cursorMoveInFlight) {
+    if (this.cursorMoveDrainPromise) {
       return;
     }
 
-    this.cursorMoveInFlight = true;
     try {
-      // While one invoke is in flight, keep only the latest sampled position.
-      while (this.pendingCursorMove) {
-        const nextCursorMove = this.pendingCursorMove;
-        this.pendingCursorMove = null;
-
-        try {
-          await this.connection.invoke('MoveCursor', nextCursorMove.boardName, nextCursorMove.x, nextCursorMove.y);
-        } catch {
-          // Cursor updates are best-effort; a transient invoke failure is ignored and
-          // the next move will detect the dropped connection and recover.
-        }
-      }
+      this.cursorMoveDrainPromise = this.drainPendingCursorMoves();
+      await this.cursorMoveDrainPromise;
     } finally {
-      this.cursorMoveInFlight = false;
+      this.cursorMoveDrainPromise = null;
+    }
+  }
+
+  async drainPendingCursorMoves() {
+    // While one invoke is in flight, keep only the latest sampled position.
+    while (this.pendingCursorMove) {
+      const nextCursorMove = this.pendingCursorMove;
+      this.pendingCursorMove = null;
+
+      try {
+        await this.connection.invoke('MoveCursor', nextCursorMove.boardName, nextCursorMove.x, nextCursorMove.y);
+      } catch {
+        // Cursor updates are best-effort; a transient invoke failure is ignored and
+        // the next move will detect the dropped connection and recover.
+      }
     }
   }
 

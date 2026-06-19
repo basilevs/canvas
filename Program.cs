@@ -21,12 +21,24 @@ builder.Services.AddSingleton<IMongoClient>(serviceProvider =>
         ?? throw new InvalidOperationException("MongoDB connection string is not configured.");
     return new MongoClient(connectionString);
 });
-builder.Services.AddSingleton<MongoDbContext>();
-builder.Services.AddSingleton<IMongoDbContext>(sp => sp.GetRequiredService<MongoDbContext>());
-builder.Services.AddSingleton<BoardService>();
-builder.Services.AddSingleton<IBoardService>(sp => sp.GetRequiredService<BoardService>());
-builder.Services.AddSingleton<UserProfileService>();
-builder.Services.AddSingleton<IUserProfileService>(sp => sp.GetRequiredService<UserProfileService>());
+
+/// <summary>
+/// Instead of calling service.AddHostedService<T> you call this make sure that you can also access the hosted service by interface TImplementation
+/// https://stackoverflow.com/a/64689263/619465
+/// </summary>
+/// <param name="services">The service collection</param>
+static void AddInjectableHostedService<TService, TImplementation>(IServiceCollection services)
+    where TService : class
+    where TImplementation : class, IHostedService, TService
+{
+    services.AddSingleton<TImplementation>();
+    services.AddSingleton<IHostedService>(provider => provider.GetRequiredService<TImplementation>());
+    services.AddSingleton<TService>(provider => provider.GetRequiredService<TImplementation>());
+}
+
+AddInjectableHostedService<IBoardService, BoardService>(builder.Services);
+AddInjectableHostedService<IMongoDbContext, MongoDbContext>(builder.Services);
+AddInjectableHostedService<IUserProfileService, UserProfileService>(builder.Services);
 builder.Services.AddSingleton<IStrokeEventService, StrokeEventService>();
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
@@ -140,14 +152,6 @@ app.MapGet("/", async Task<IResult> (
 
 app.MapHub<WhiteboardHub>("/hub/whiteboard");
 app.MapFallbackToFile("/boards/{*slug}", "index.html");
-
-var mongoDbContext = app.Services.GetRequiredService<MongoDbContext>();
-var boardService = app.Services.GetRequiredService<BoardService>();
-var userProfileService = app.Services.GetRequiredService<UserProfileService>();
-var startupCancellation = app.Lifetime.ApplicationStopping;
-await mongoDbContext.InitializeAsync(startupCancellation);
-await boardService.EnsureIndexesAsync(startupCancellation);
-await userProfileService.EnsureIndexesAsync(startupCancellation);
 
 app.Run();
 

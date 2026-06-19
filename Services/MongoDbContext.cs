@@ -17,7 +17,7 @@ public interface IMongoDbContext
     IMongoCollection<StrokeEvent> StrokeEvents { get; }
 }
 
-public sealed class MongoDbContext : IMongoDbContext
+public sealed class MongoDbContext : IMongoDbContext, IHostedService
 {
     private const string StrokeEventsCollectionName = "StrokeEvents";
 
@@ -50,7 +50,7 @@ public sealed class MongoDbContext : IMongoDbContext
     /// indexes. Idempotent; must be awaited once during startup before the
     /// collections are used.
     /// </summary>
-    public async Task InitializeAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         var existing = await _database
             .ListCollectionNames(new ListCollectionNamesOptions
@@ -86,5 +86,11 @@ public sealed class MongoDbContext : IMongoDbContext
 
         await collection.Indexes.CreateManyAsync([strokeIdIndex, userTimestampIndex], cancellationToken);
         _strokeEvents = collection;
+    }
+
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        return Task.CompletedTask;
     }
 }

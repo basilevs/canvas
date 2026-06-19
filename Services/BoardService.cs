@@ -14,7 +14,7 @@ public interface IBoardService
     Task UpdateLastActivityAsync(string boardId, CancellationToken cancellationToken);
 }
 
-public sealed class BoardService : IBoardService
+public sealed class BoardService : IBoardService, IHostedService
 {
     private static readonly TimeSpan SnapshotRetention = TimeSpan.FromDays(30);
     private readonly IMongoCollection<Board> _boards;
@@ -78,7 +78,7 @@ public sealed class BoardService : IBoardService
         }
     }
 
-    public async Task EnsureIndexesAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         // The canonical board name is the document _id, so it is inherently unique —
         // no separate unique Name index is required. Only the activity TTL is created.
@@ -99,5 +99,10 @@ public sealed class BoardService : IBoardService
         {
             throw new ArgumentException("Board id is required.", nameof(boardId));
         }
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        return Task.CompletedTask;
     }
 }
