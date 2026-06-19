@@ -51,25 +51,23 @@ class WhiteboardCanvas {
     this.replaying = false;
     this.devicePixelRatio = Math.max(window.devicePixelRatio || 1, 1);
 
-    // Remote cursors are painted on a separate transparent overlay stacked on
-    // top of the strokes canvas. This keeps frequent cursor movement from
-    // forcing a full redraw of the entire stroke history (expensive on mobile),
-    // since the two layers repaint independently. pointer-events: none lets
-    // input pass through to the strokes canvas below. Explicit z-index values
-    // give the two exactly-overlapping canvases a deterministic stacking order,
-    // avoiding the compositor z-fighting that ambiguous (auto) z-index allows.
+    // Volatile visuals (remote cursors + in-flight local stroke preview) are
+    // painted on a transparent overlay stacked on top of the confirmed-strokes
+    // canvas. This isolates high-frequency updates from full history redraws
+    // on mobile. pointer-events: none lets input pass through to the strokes
+    // canvas below.
     this.canvas.style.zIndex = '0';
-    this.cursorCanvas = document.createElement('canvas');
-    const cursorStyle = this.cursorCanvas.style;
-    cursorStyle.position = 'absolute';
-    cursorStyle.top = '0';
-    cursorStyle.left = '0';
-    cursorStyle.width = '100%';
-    cursorStyle.height = '100%';
-    cursorStyle.zIndex = '1';
-    cursorStyle.pointerEvents = 'none';
-    this.canvas.parentNode.appendChild(this.cursorCanvas);
-    this.cursorContext = this.cursorCanvas.getContext('2d');
+    this.volatileCanvas = document.createElement('canvas');
+    const volatileStyle = this.volatileCanvas.style;
+    volatileStyle.position = 'absolute';
+    volatileStyle.top = '0';
+    volatileStyle.left = '0';
+    volatileStyle.width = '100%';
+    volatileStyle.height = '100%';
+    volatileStyle.zIndex = '1';
+    volatileStyle.pointerEvents = 'none';
+    this.canvas.parentNode.appendChild(this.volatileCanvas);
+    this.volatileContext = this.volatileCanvas.getContext('2d');
 
     this.canvas.addEventListener('pointerdown', this.#handlePointerDown);
     this.canvas.addEventListener('pointermove', this.#handlePointerMove);
@@ -89,11 +87,11 @@ class WhiteboardCanvas {
   setReplaying(value) {
     this.replaying = value;
     if (value) {
-      // Hide remote cursors while the replay engine animates the strokes layer.
-      this.#clearCursors();
+      // Hide overlay visuals while the replay engine animates the strokes layer.
+      this.#clearVolatile();
     } else {
       this.#render();
-      this.#renderCursors();
+      this.#renderVolatile();
     }
   }
 
@@ -101,6 +99,7 @@ class WhiteboardCanvas {
     this.confirmedStrokes = Array.isArray(strokes) ? [...strokes] : [];
     this.previewStroke = null;
     this.#render();
+    this.#renderVolatile();
   }
 
   commitStroke(stroke) {
@@ -116,6 +115,7 @@ class WhiteboardCanvas {
     }
 
     this.#render();
+    this.#renderVolatile();
   }
 
   removeStroke(strokeId) {
@@ -127,6 +127,7 @@ class WhiteboardCanvas {
     if (index !== -1) {
       this.confirmedStrokes.splice(index, 1);
       this.#render();
+      this.#renderVolatile();
     }
   }
 
@@ -141,12 +142,12 @@ class WhiteboardCanvas {
       this.remoteCursors.set(userId, cursor);
     }
 
-    this.#renderCursors();
+    this.#renderVolatile();
   }
 
   removeRemoteCursor(userId) {
     this.remoteCursors.delete(userId);
-    this.#renderCursors();
+    this.#renderVolatile();
   }
 
   #handleResize = () => {
@@ -155,13 +156,13 @@ class WhiteboardCanvas {
     const height = Math.max(Math.floor(rect.height * this.devicePixelRatio), 1);
 
     if (this.canvas.width !== width || this.canvas.height !== height ||
-        this.cursorCanvas.width !== width || this.cursorCanvas.height !== height) {
+        this.volatileCanvas.width !== width || this.volatileCanvas.height !== height) {
       this.canvas.width = width;
       this.canvas.height = height;
-      this.cursorCanvas.width = width;
-      this.cursorCanvas.height = height;
+      this.volatileCanvas.width = width;
+      this.volatileCanvas.height = height;
       this.#render();
-      this.#renderCursors();
+      this.#renderVolatile();
     }
   };
 
@@ -188,7 +189,7 @@ class WhiteboardCanvas {
 
     this.#appendPoint(event);
     this.previewStroke = this.currentStroke;
-    this.#render();
+    this.#renderVolatile();
   };
 
   #handlePointerMove = (event) => {
@@ -199,7 +200,7 @@ class WhiteboardCanvas {
     this.#updateCursor(event);
     this.#appendPoint(event);
     this.previewStroke = this.currentStroke;
-    this.#render();
+    this.#renderVolatile();
   };
 
   #handlePointerUp = (event) => {
@@ -215,7 +216,7 @@ class WhiteboardCanvas {
     const completedStroke = this.currentStroke;
     this.currentStroke = null;
     this.previewStroke = completedStroke;
-    this.#render();
+    this.#renderVolatile();
     this.handlers.onStrokeCompleted?.(completedStroke);
   };
 
@@ -312,33 +313,33 @@ class WhiteboardCanvas {
       this.#drawStroke(stroke);
     }
 
-    if (this.previewStroke) {
-      context.save();
-      context.globalAlpha = 0.85;
-      this.#drawStroke(this.previewStroke);
-      context.restore();
-    }
+    // Volatile overlay renders local in-flight/pending preview strokes.
   }
 
-  // Repaints only the cursor overlay, leaving the strokes layer untouched so a
-  // moving remote cursor doesn't trigger a full history redraw.
-  #renderCursors() {
-    this.#clearCursors();
+  // Repaints only volatile overlay visuals (remote cursors + local preview),
+  // leaving confirmed stroke history untouched.
+  #renderVolatile() {
+    this.#clearVolatile();
     if (this.replaying) {
       return;
     }
 
+    const volatileStroke = this.currentStroke ?? this.previewStroke;
+    if (volatileStroke) {
+      this.#drawVolatileStroke(volatileStroke);
+    }
+
     for (const [userId, cursor] of this.remoteCursors.entries()) {
-      this.#drawCursor(userId, cursor);
+      this.#drawRemoteCursor(userId, cursor);
     }
   }
 
-  #clearCursors() {
-    const context = this.cursorContext;
+  #clearVolatile() {
+    const context = this.volatileContext;
     if (!context) {
       return;
     }
-    context.clearRect(0, 0, this.cursorCanvas.width, this.cursorCanvas.height);
+    context.clearRect(0, 0, this.volatileCanvas.width, this.volatileCanvas.height);
   }
 
   #drawStroke(stroke) {
@@ -354,8 +355,24 @@ class WhiteboardCanvas {
     });
   }
 
-  #drawCursor(userId, cursor) {
-    const context = this.cursorContext;
+  #drawVolatileStroke(stroke) {
+    const context = this.volatileContext;
+    if (!context) {
+      return;
+    }
+
+    context.save();
+    context.globalAlpha = 0.85;
+    drawStrokePath(context, stroke.points ?? stroke.Points ?? [], {
+      dpr: this.devicePixelRatio,
+      color: stroke.color ?? stroke.Color ?? DEFAULT_COLOR,
+      baseWidth: stroke.width ?? stroke.Width ?? 4
+    });
+    context.restore();
+  }
+
+  #drawRemoteCursor(userId, cursor) {
+    const context = this.volatileContext;
     const color = colorFromUserId(userId);
     const x = cursor.x;
     const y = cursor.y;
