@@ -217,7 +217,8 @@ class WhiteboardCanvas {
     this.currentStroke = null;
     completedStroke.points = simplifyPointsVisvalingamWhyatt(
       completedStroke.points,
-      SIMPLIFY_THRESHOLD_CSS_PX
+      SIMPLIFY_THRESHOLD_CSS_PX,
+      completedStroke.width ?? completedStroke.Width ?? 4
     );
     this.previewStroke = completedStroke;
     this.#render();
@@ -395,16 +396,19 @@ function getStrokeId(stroke) {
   return stroke.id ?? stroke.Id;
 }
 
-function simplifyPointsVisvalingamWhyatt(points, thresholdCssPx) {
+function simplifyPointsVisvalingamWhyatt(points, thresholdCssPx, baseWidthCssPx = 4) {
   if (!Array.isArray(points) || points.length <= 2) {
     return points;
   }
 
-  const areaThreshold = Math.max(0, thresholdCssPx);
-  const kept = points.map((point, index) => ({ point, index, removed: false }));
+  // Keep the public threshold in CSS pixels and convert to an area-like scale
+  // used by the VW triangle score.
+  const t = Math.max(0, thresholdCssPx);
+  const areaThreshold = 0.5 * t * t;
+  const kept = points.map(point => ({ point, removed: false }));
 
   while (true) {
-    let minArea = Infinity;
+    let minScore = Infinity;
     let minIndex = -1;
 
     for (let i = 1; i < kept.length - 1; i += 1) {
@@ -418,14 +422,19 @@ function simplifyPointsVisvalingamWhyatt(points, thresholdCssPx) {
         continue;
       }
 
-      const area = triangleArea(kept[prev].point, kept[i].point, kept[next].point);
-      if (area < minArea) {
-        minArea = area;
+      const score = triangleScoreWithPressure(
+        kept[prev].point,
+        kept[i].point,
+        kept[next].point,
+        baseWidthCssPx
+      );
+      if (score < minScore) {
+        minScore = score;
         minIndex = i;
       }
     }
 
-    if (minIndex === -1 || minArea >= areaThreshold) {
+    if (minIndex === -1 || minScore >= areaThreshold) {
       break;
     }
 
@@ -464,6 +473,38 @@ function triangleArea(a, b, c) {
   const cy = c.y ?? c.Y;
 
   return Math.abs((ax * (by - cy) + bx * (cy - ay) + cx * (ay - by)) / 2);
+}
+
+function triangleScoreWithPressure(a, b, c, baseWidthCssPx) {
+  const geometryArea = triangleArea(a, b, c);
+  const chordLength = pointDistance(a, c);
+  const wa = momentaryWidthCssPx(a, baseWidthCssPx);
+  const wb = momentaryWidthCssPx(b, baseWidthCssPx);
+  const wc = momentaryWidthCssPx(c, baseWidthCssPx);
+  const widthCurvature = Math.abs(wa - (2 * wb) + wc);
+  const widthArea = 0.5 * chordLength * widthCurvature;
+  return geometryArea + widthArea;
+}
+
+function momentaryWidthCssPx(point, baseWidthCssPx) {
+  return Math.max(0, baseWidthCssPx) * pointPressureFactor(point);
+}
+
+function pointPressureFactor(point) {
+  const pressure = point.pressure ?? point.Pressure;
+  if (pressure == null) {
+    return 1;
+  }
+
+  return Math.min(1, Math.max(0, pressure));
+}
+
+function pointDistance(a, b) {
+  const ax = a.x ?? a.X;
+  const ay = a.y ?? a.Y;
+  const bx = b.x ?? b.X;
+  const by = b.y ?? b.Y;
+  return Math.hypot(ax - bx, ay - by);
 }
 
 // crypto.randomUUID() is only available in secure contexts (HTTPS or
