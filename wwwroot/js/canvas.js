@@ -1,4 +1,5 @@
 const DEFAULT_COLOR = '#1e88e5';
+const SIMPLIFY_THRESHOLD_CSS_PX = 5;
 
 // On-screen debug log for diagnosing input on mobile, where there is no easy
 // access to the dev-tools console. Flip DEBUG to true to surface a live panel
@@ -214,6 +215,10 @@ class WhiteboardCanvas {
     this.#appendPoint(event);
     const completedStroke = this.currentStroke;
     this.currentStroke = null;
+    completedStroke.points = simplifyPointsVisvalingamWhyatt(
+      completedStroke.points,
+      SIMPLIFY_THRESHOLD_CSS_PX
+    );
     this.previewStroke = completedStroke;
     this.#render();
     this.handlers.onStrokeCompleted?.(completedStroke);
@@ -388,6 +393,77 @@ function normalizeStroke(stroke) {
 
 function getStrokeId(stroke) {
   return stroke.id ?? stroke.Id;
+}
+
+function simplifyPointsVisvalingamWhyatt(points, thresholdCssPx) {
+  if (!Array.isArray(points) || points.length <= 2) {
+    return points;
+  }
+
+  const areaThreshold = Math.max(0, thresholdCssPx);
+  const kept = points.map((point, index) => ({ point, index, removed: false }));
+
+  while (true) {
+    let minArea = Infinity;
+    let minIndex = -1;
+
+    for (let i = 1; i < kept.length - 1; i += 1) {
+      if (kept[i].removed) {
+        continue;
+      }
+
+      const prev = findPreviousKept(kept, i);
+      const next = findNextKept(kept, i);
+      if (prev === -1 || next === -1) {
+        continue;
+      }
+
+      const area = triangleArea(kept[prev].point, kept[i].point, kept[next].point);
+      if (area < minArea) {
+        minArea = area;
+        minIndex = i;
+      }
+    }
+
+    if (minIndex === -1 || minArea >= areaThreshold) {
+      break;
+    }
+
+    kept[minIndex].removed = true;
+  }
+
+  return kept.filter(entry => !entry.removed).map(entry => entry.point);
+}
+
+function findPreviousKept(entries, index) {
+  for (let i = index - 1; i >= 0; i -= 1) {
+    if (!entries[i].removed) {
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+function findNextKept(entries, index) {
+  for (let i = index + 1; i < entries.length; i += 1) {
+    if (!entries[i].removed) {
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+function triangleArea(a, b, c) {
+  const ax = a.x ?? a.X;
+  const ay = a.y ?? a.Y;
+  const bx = b.x ?? b.X;
+  const by = b.y ?? b.Y;
+  const cx = c.x ?? c.X;
+  const cy = c.y ?? c.Y;
+
+  return Math.abs((ax * (by - cy) + bx * (cy - ay) + cx * (ay - by)) / 2);
 }
 
 // crypto.randomUUID() is only available in secure contexts (HTTPS or
