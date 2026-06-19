@@ -8,6 +8,8 @@ class WhiteboardConnection {
     this.boardName = null;
     this.sinceTimestamp = new Date(0).toISOString();
     this.pendingStrokes = new Map();
+    this.cursorMoveInFlight = false;
+    this.pendingCursorMove = null;
     this.started = false;
     this.restartPromise = null;
     this.connection = new signalR.HubConnectionBuilder()
@@ -122,6 +124,8 @@ class WhiteboardConnection {
       return;
     }
 
+    this.pendingCursorMove = { boardName, x, y };
+
     // Cursor movement is frequent user activity, so use it as a trigger to
     // recover the connection once SignalR's automatic reconnect has given up and
     // gone fully Disconnected. Skip sending this sample; movement resumes on the
@@ -131,11 +135,26 @@ class WhiteboardConnection {
       return;
     }
 
+    if (this.cursorMoveInFlight) {
+      return;
+    }
+
+    this.cursorMoveInFlight = true;
     try {
-      await this.connection.invoke('MoveCursor', boardName, x, y);
-    } catch {
-      // Cursor updates are best-effort; a transient invoke failure is ignored and
-      // the next move will detect the dropped connection and recover.
+      // While one invoke is in flight, keep only the latest sampled position.
+      while (this.pendingCursorMove) {
+        const nextCursorMove = this.pendingCursorMove;
+        this.pendingCursorMove = null;
+
+        try {
+          await this.connection.invoke('MoveCursor', nextCursorMove.boardName, nextCursorMove.x, nextCursorMove.y);
+        } catch {
+          // Cursor updates are best-effort; a transient invoke failure is ignored and
+          // the next move will detect the dropped connection and recover.
+        }
+      }
+    } finally {
+      this.cursorMoveInFlight = false;
     }
   }
 
