@@ -23,7 +23,7 @@ public interface IUserProfileService
 public sealed class UserProfileService : IUserProfileService, IHostedService
 {
     private const string DefaultDisplayName = "Anonymous";
-    private readonly IMongoCollection<UserProfile> _users;
+    private readonly Task<IMongoCollection<UserProfile>> _users;
 
     public UserProfileService(IMongoDbContext mongoDbContext)
     {
@@ -48,7 +48,8 @@ public sealed class UserProfileService : IUserProfileService, IHostedService
             ReturnDocument = ReturnDocument.After
         };
 
-        return await _users.FindOneAndUpdateAsync(
+        var users = await _users;
+        return await users.FindOneAndUpdateAsync(
             profile => profile.UserId == userId,
             update,
             options,
@@ -63,7 +64,8 @@ public sealed class UserProfileService : IUserProfileService, IHostedService
         }
 
         var update = Builders<UserProfile>.Update.Set(profile => profile.DisplayName, name);
-        var result = await _users.UpdateOneAsync(
+        var users = await _users;
+        var result = await users.UpdateOneAsync(
             profile => profile.UserId == userId,
             update,
             cancellationToken: cancellationToken);
@@ -71,7 +73,7 @@ public sealed class UserProfileService : IUserProfileService, IHostedService
         if (result.MatchedCount == 0)
         {
             await GetOrCreateProfileAsync(userId, cancellationToken);
-            await _users.UpdateOneAsync(
+            await users.UpdateOneAsync(
                 profile => profile.UserId == userId,
                 update,
                 cancellationToken: cancellationToken);
@@ -80,7 +82,8 @@ public sealed class UserProfileService : IUserProfileService, IHostedService
 
     public async Task<string?> GetDisplayNameAsync(string userId, CancellationToken cancellationToken)
     {
-        var profile = await _users.Find(p => p.UserId == userId).FirstOrDefaultAsync(cancellationToken);
+        var users = await _users;
+        var profile = await users.Find(p => p.UserId == userId).FirstOrDefaultAsync(cancellationToken);
         return profile?.DisplayName;
     }
 
@@ -98,7 +101,8 @@ public sealed class UserProfileService : IUserProfileService, IHostedService
             return new Dictionary<string, string>(StringComparer.Ordinal);
         }
 
-        var profiles = await _users
+        var users = await _users;
+        var profiles = await users
             .Find(profile => idList.Contains(profile.UserId))
             .ToListAsync(cancellationToken);
 
@@ -122,8 +126,9 @@ public sealed class UserProfileService : IUserProfileService, IHostedService
             throw new ArgumentException("Board name is required.", nameof(boardName));
         }
 
+        var users = await _users;
         var update = Builders<UserProfile>.Update.Set(profile => profile.LastBoardName, boardName);
-        var result = await _users.UpdateOneAsync(
+        var result = await users.UpdateOneAsync(
             profile => profile.UserId == userId,
             update,
             cancellationToken: cancellationToken);
@@ -131,7 +136,7 @@ public sealed class UserProfileService : IUserProfileService, IHostedService
         if (result.MatchedCount == 0)
         {
             await GetOrCreateProfileAsync(userId, cancellationToken);
-            await _users.UpdateOneAsync(
+            await users.UpdateOneAsync(
                 profile => profile.UserId == userId,
                 update,
                 cancellationToken: cancellationToken);
@@ -140,17 +145,19 @@ public sealed class UserProfileService : IUserProfileService, IHostedService
 
     public async Task<string?> GetLastBoardAsync(string userId, CancellationToken cancellationToken)
     {
-        var profile = await _users.Find(p => p.UserId == userId).FirstOrDefaultAsync(cancellationToken);
+        var users = await _users;
+        var profile = await users.Find(p => p.UserId == userId).FirstOrDefaultAsync(cancellationToken);
         return profile?.LastBoardName;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        var users = await _users;
         var userIdIndex = new CreateIndexModel<UserProfile>(
             Builders<UserProfile>.IndexKeys.Ascending(profile => profile.UserId),
             new CreateIndexOptions { Unique = true, Name = "ux_users_user_id" });
 
-        await _users.Indexes.CreateOneAsync(userIdIndex, cancellationToken: cancellationToken);
+        await users.Indexes.CreateOneAsync(userIdIndex, cancellationToken: cancellationToken);
     }
 
     public Task StopAsync(CancellationToken cancellationToken)

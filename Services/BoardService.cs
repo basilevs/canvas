@@ -17,7 +17,7 @@ public interface IBoardService
 public sealed class BoardService : IBoardService, IHostedService
 {
     private static readonly TimeSpan SnapshotRetention = TimeSpan.FromDays(30);
-    private readonly IMongoCollection<Board> _boards;
+    private readonly Task<IMongoCollection<Board>> _boards;
 
     public BoardService(IMongoDbContext mongoDbContext)
     {
@@ -36,13 +36,15 @@ public sealed class BoardService : IBoardService, IHostedService
             LastActivityAt = now
         };
 
-        await _boards.InsertOneAsync(board, cancellationToken: cancellationToken);
+        var boards = await _boards;
+        await boards.InsertOneAsync(board, cancellationToken: cancellationToken);
         return board;
     }
 
     public async Task<Board?> GetBoardAsync(string boardId, CancellationToken cancellationToken)
     {
-        return await _boards.Find(board => board.Id == boardId).FirstOrDefaultAsync(cancellationToken);
+        var boards = await _boards;
+        return await boards.Find(board => board.Id == boardId).FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task<Board> GetOrCreateBoardAsync(string boardId, CancellationToken cancellationToken)
@@ -61,13 +63,15 @@ public sealed class BoardService : IBoardService, IHostedService
             ReturnDocument = ReturnDocument.After
         };
 
-        return await _boards.FindOneAndUpdateAsync(filter, update, options, cancellationToken);
+        var boards = await _boards;
+        return await boards.FindOneAndUpdateAsync(filter, update, options, cancellationToken);
     }
 
     public async Task UpdateLastActivityAsync(string boardId, CancellationToken cancellationToken)
     {
+        var boards = await _boards;
         var update = Builders<Board>.Update.Set(board => board.LastActivityAt, DateTime.UtcNow);
-        var result = await _boards.UpdateOneAsync(
+        var result = await boards.UpdateOneAsync(
             board => board.Id == boardId,
             update,
             cancellationToken: cancellationToken);
@@ -90,7 +94,8 @@ public sealed class BoardService : IBoardService, IHostedService
                 ExpireAfter = SnapshotRetention
             });
 
-        await _boards.Indexes.CreateOneAsync(ttlIndex, cancellationToken: cancellationToken);
+        var boards = await _boards;
+        await boards.Indexes.CreateOneAsync(ttlIndex, cancellationToken: cancellationToken);
     }
 
     private static void EnsureBoardId(string boardId)

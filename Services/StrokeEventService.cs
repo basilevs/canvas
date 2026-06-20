@@ -45,7 +45,7 @@ public sealed class StrokeEventService : IStrokeEventService
         _context = mongoDbContext;
     }
 
-    private IMongoCollection<StrokeEvent> Events => _context.StrokeEvents;
+    private Task<IMongoCollection<StrokeEvent>> Events => _context.StrokeEvents;
 
     public async Task<bool> AppendEventAsync(string boardId, EventType type, Stroke stroke, CancellationToken cancellationToken)
     {
@@ -56,11 +56,13 @@ public sealed class StrokeEventService : IStrokeEventService
             throw new ArgumentException("Stroke id is required.", nameof(stroke));
         }
 
+        var events = await Events;
+
         if (type == EventType.Add)
         {
             // Time-series collections support no unique index, so de-duplicate Add
             // events at the application level by the stroke's client-generated Id.
-            var duplicate = await Events
+            var duplicate = await events
                 .Find(e => e.BoardId == boardId && e.Type == EventType.Add && e.Stroke.Id == stroke.Id)
                 .Limit(1)
                 .AnyAsync(cancellationToken);
@@ -79,7 +81,7 @@ public sealed class StrokeEventService : IStrokeEventService
             Timestamp = DateTime.UtcNow
         };
 
-        await Events.InsertOneAsync(strokeEvent, cancellationToken: cancellationToken);
+        await events.InsertOneAsync(strokeEvent, cancellationToken: cancellationToken);
         return true;
     }
 
@@ -97,7 +99,8 @@ public sealed class StrokeEventService : IStrokeEventService
         }
 
         var filter = Builders<StrokeEvent>.Filter.Eq(e => e.BoardId, boardId);
-        var totalEvents = await Events.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
+        var events = await Events;
+        var totalEvents = await events.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
         var totalPages = (int)((totalEvents + pageSize - 1) / pageSize);
 
         if (pageNumber > totalPages)
@@ -105,14 +108,13 @@ public sealed class StrokeEventService : IStrokeEventService
             return new StrokeEventPage([], totalEvents, totalPages);
         }
 
-        var events = await Events
-            .Find(filter)
+        var eventsList = await events.Find(filter)
             .Sort(ChronologicalSort)
             .Skip((pageNumber - 1) * pageSize)
             .Limit(pageSize)
             .ToListAsync(cancellationToken);
 
-        return new StrokeEventPage(events, totalEvents, totalPages);
+        return new StrokeEventPage(eventsList, totalEvents, totalPages);
     }
 
     public async Task<IReadOnlyList<StrokeEvent>> GetEventsSinceAsync(string boardId, DateTime sinceTimestamp, CancellationToken cancellationToken)
@@ -123,7 +125,7 @@ public sealed class StrokeEventService : IStrokeEventService
             Builders<StrokeEvent>.Filter.Eq(e => e.BoardId, boardId),
             Builders<StrokeEvent>.Filter.Gte(e => e.Timestamp, sinceTimestamp));
 
-        return await Events
+        return await (await Events)
             .Find(filter)
             .Sort(ChronologicalSort)
             .ToListAsync(cancellationToken);
@@ -142,7 +144,8 @@ public sealed class StrokeEventService : IStrokeEventService
             Builders<StrokeEvent>.Filter.Eq(e => e.Type, EventType.Add),
             Builders<StrokeEvent>.Filter.Eq(e => e.Stroke.UserId, userId));
 
-        var recentAdds = await Events
+        var events = await Events;
+        var recentAdds = await events
             .Find(addFilter)
             .Sort(Builders<StrokeEvent>.Sort.Descending(e => e.Timestamp).Descending(e => e.Stroke.Id))
             .Limit(LastRemovableScanLimit)
@@ -150,7 +153,7 @@ public sealed class StrokeEventService : IStrokeEventService
 
         foreach (var add in recentAdds)
         {
-            var removed = await Events
+            var removed = await events
                 .Find(e => e.BoardId == boardId && e.Type == EventType.Remove && e.Stroke.Id == add.Stroke.Id)
                 .Limit(1)
                 .AnyAsync(cancellationToken);

@@ -5,16 +5,16 @@ namespace Canvas.Services;
 
 public interface IMongoDbContext
 {
-    IMongoCollection<Board> Boards { get; }
+    Task<IMongoCollection<Board>> Boards { get; }
 
-    IMongoCollection<UserProfile> Users { get; }
+    Task<IMongoCollection<UserProfile>> Users { get; }
 
     /// <summary>
     /// The append-only stroke-event log. Backed by a native time-series collection
     /// that is created by <c>MongoDbContext.InitializeAsync</c>; accessing this
     /// before initialization completes throws.
     /// </summary>
-    IMongoCollection<StrokeEvent> StrokeEvents { get; }
+    Task<IMongoCollection<StrokeEvent>> StrokeEvents { get; }
 }
 
 public sealed class MongoDbContext : IMongoDbContext, IHostedService
@@ -25,8 +25,9 @@ public sealed class MongoDbContext : IMongoDbContext, IHostedService
     private readonly IMongoCollection<Board> _boards;
     private readonly IMongoCollection<UserProfile> _users;
     private IMongoCollection<StrokeEvent>? _strokeEvents;
+    private readonly Task _init;
 
-    public MongoDbContext(IMongoClient client, IConfiguration configuration)
+    public MongoDbContext(IMongoClient client, IConfiguration configuration, IHostApplicationLifetime cancellationToken)
     {
         var databaseName = configuration["MongoDB:DatabaseName"]
             ?? throw new InvalidOperationException("MongoDB database name is not configured.");
@@ -34,15 +35,34 @@ public sealed class MongoDbContext : IMongoDbContext, IHostedService
         _database = client.GetDatabase(databaseName);
         _boards = _database.GetCollection<Board>("Boards");
         _users = _database.GetCollection<UserProfile>("Users");
+        // Indexes should be created before access
+        _init = Init(cancellationToken.ApplicationStopping);
     }
 
-    public IMongoCollection<Board> Boards => _boards;
+    public Task<IMongoCollection<Board>> Boards
+    {
+        get
+        {
+            return _init.ContinueWith((_) => _boards);
+        }
+    }
 
-    public IMongoCollection<UserProfile> Users => _users;
+    public Task<IMongoCollection<UserProfile>> Users
+    {
+        get
+        {
+            return _init.ContinueWith((_) => _users);
+        }
+    }
 
-    public IMongoCollection<StrokeEvent> StrokeEvents =>
-        _strokeEvents ?? throw new InvalidOperationException(
-            "MongoDbContext.InitializeAsync must be awaited before accessing StrokeEvents.");
+    public Task<IMongoCollection<StrokeEvent>> StrokeEvents
+    {
+        get
+        {
+            return _init.ContinueWith((_) => _strokeEvents ?? throw new InvalidOperationException(
+                "MongoDbContext.InitializeAsync must be awaited before accessing StrokeEvents."));
+        }
+    }
 
     /// <summary>
     /// Establishes server-side schema that cannot be created in the constructor —
@@ -52,6 +72,10 @@ public sealed class MongoDbContext : IMongoDbContext, IHostedService
     /// </summary>
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        await _init;
+    }
+
+    private async Task Init(CancellationToken cancellationToken) {
         var existing = await _database
             .ListCollectionNames(new ListCollectionNamesOptions
             {
