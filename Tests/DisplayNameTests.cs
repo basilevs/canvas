@@ -19,7 +19,7 @@ public sealed class DisplayNameTests
 
         var profile = await userProfileService.GetOrCreateProfileAsync("user-1", default);
         Assert.AreEqual("New Name", profile.DisplayName);
-        Assert.AreEqual(1, group.UserRenamedCalls.Count);
+        Assert.HasCount(1, group.UserRenamedCalls);
         Assert.AreEqual(("user-1", "New Name"), group.UserRenamedCalls[0]);
     }
 

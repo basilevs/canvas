@@ -38,7 +38,7 @@ public sealed class StrokeEventServiceTests
         await _service.AppendEventAsync("board-1", EventType.Add, NewStroke("user-1"), default);
 
         var page = await _service.GetEventsPageAsync("board-1", 1, StrokeEventService.DefaultPageSize, default);
-        Assert.AreEqual(1, page.Events.Count);
+        Assert.HasCount(1, page.Events);
         Assert.IsTrue(page.Events[0].Timestamp >= before);
         Assert.IsTrue(page.Events[0].Timestamp <= DateTime.UtcNow.AddSeconds(1));
     }
@@ -112,7 +112,7 @@ public sealed class StrokeEventServiceTests
 
         var since = await _service.GetEventsSinceAsync("board-1", boundary, default);
 
-        Assert.AreEqual(1, since.Count);
+        Assert.HasCount(1, since);
         Assert.AreEqual(first.Id, since[0].Stroke.Id);
     }
 

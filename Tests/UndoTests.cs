@@ -97,7 +97,7 @@ public sealed class UndoTests
 
         await hub.UndoLastStroke(BoardName);
 
-        Assert.AreEqual(0, _group.StrokeRemovedCalls.Count);
+        Assert.IsEmpty(_group.StrokeRemovedCalls);
         var events = await GetAllEventsAsync();
         Assert.AreEqual(0, events.Count(e => e.Type == EventType.Remove));
     }

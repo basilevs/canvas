@@ -18,9 +18,9 @@ public sealed class WhiteboardHubTests
 
         await hub.JoinBoard("Demo-Board", DateTime.UnixEpoch);
 
-        Assert.AreEqual(1, caller.ConnectedUsersCalls.Count);
-        Assert.AreEqual(0, caller.Strokes.Count);
-        Assert.AreEqual(1, group.UserJoinedCalls.Count);
+        Assert.HasCount(1, caller.ConnectedUsersCalls);
+        Assert.IsEmpty(caller.Strokes);
+        Assert.HasCount(1, group.UserJoinedCalls);
         Assert.AreEqual(("user-1", "Alice"), group.UserJoinedCalls[0]);
         Assert.IsTrue(groups.Operations.Any(operation => operation.Action == "add" && operation.GroupName == "demo-board"));
     }
@@ -35,7 +35,7 @@ public sealed class WhiteboardHubTests
 
         await hub.JoinBoard("demo-board", DateTime.UnixEpoch);
 
-        Assert.AreEqual(2, caller.Strokes.Count);
+        Assert.HasCount(2, caller.Strokes);
     }
 
     [TestMethod]
@@ -56,7 +56,7 @@ public sealed class WhiteboardHubTests
         await hub.SendStroke("demo-board", stroke);
 
         Assert.AreEqual(1, strokeEvents.Events.Count(e => e.Type == EventType.Add));
-        Assert.AreEqual(1, group.Strokes.Count);
+        Assert.HasCount(1, group.Strokes);
         Assert.AreEqual(stroke.Id, group.Strokes[0].Id);
     }
 
@@ -77,7 +77,7 @@ public sealed class WhiteboardHubTests
         await hub.UndoLastStroke("demo-board");
 
         Assert.AreEqual(1, strokeEvents.Events.Count(e => e.Type == EventType.Remove));
-        Assert.AreEqual(1, group.StrokeRemovedCalls.Count);
+        Assert.HasCount(1, group.StrokeRemovedCalls);
         Assert.AreEqual(stroke.Id, group.StrokeRemovedCalls[0]);
     }
 
@@ -91,7 +91,7 @@ public sealed class WhiteboardHubTests
         await hub.UndoLastStroke("demo-board");
 
         Assert.AreEqual(0, strokeEvents.Events.Count(e => e.Type == EventType.Remove));
-        Assert.AreEqual(0, group.StrokeRemovedCalls.Count);
+        Assert.IsEmpty(group.StrokeRemovedCalls);
     }
 
     private static Stroke NewStroke(string userId)
