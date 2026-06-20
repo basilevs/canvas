@@ -21,7 +21,7 @@ public sealed class BoardService : IBoardService, IHostedService
 
     public BoardService(IMongoDbContext mongoDbContext)
     {
-        _boards = mongoDbContext.Boards;
+        _boards = mongoDbContext.BoardsAsync;
     }
 
     public async Task<Board> CreateBoardAsync(string boardId, CancellationToken cancellationToken)

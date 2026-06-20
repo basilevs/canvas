@@ -5,16 +5,16 @@ namespace Canvas.Services;
 
 public interface IMongoDbContext
 {
-    Task<IMongoCollection<Board>> Boards { get; }
+    Task<IMongoCollection<Board>> BoardsAsync { get; }
 
-    Task<IMongoCollection<UserProfile>> Users { get; }
+    Task<IMongoCollection<UserProfile>> UsersAsync { get; }
 
     /// <summary>
     /// The append-only stroke-event log. Backed by a native time-series collection
     /// that is created by <c>MongoDbContext.InitializeAsync</c>; accessing this
     /// before initialization completes throws.
     /// </summary>
-    Task<IMongoCollection<StrokeEvent>> StrokeEvents { get; }
+    Task<IMongoCollection<StrokeEvent>> StrokeEventsAsync { get; }
 }
 
 public sealed class MongoDbContext : IMongoDbContext, IHostedService
@@ -27,7 +27,7 @@ public sealed class MongoDbContext : IMongoDbContext, IHostedService
     private IMongoCollection<StrokeEvent>? _strokeEvents;
     private readonly Task _init;
 
-    public MongoDbContext(IMongoClient client, IConfiguration configuration, IHostApplicationLifetime cancellationToken)
+    public MongoDbContext(IMongoClient client, IConfiguration configuration, ICancellationTokenProvider cancellationToken)
     {
         var databaseName = configuration["MongoDB:DatabaseName"]
             ?? throw new InvalidOperationException("MongoDB database name is not configured.");
@@ -36,10 +36,10 @@ public sealed class MongoDbContext : IMongoDbContext, IHostedService
         _boards = _database.GetCollection<Board>("Boards");
         _users = _database.GetCollection<UserProfile>("Users");
         // Indexes should be created before access
-        _init = Init(cancellationToken.ApplicationStopping);
+        _init = Init(cancellationToken.Token);
     }
 
-    public Task<IMongoCollection<Board>> Boards
+    public Task<IMongoCollection<Board>> BoardsAsync
     {
         get
         {
@@ -47,7 +47,7 @@ public sealed class MongoDbContext : IMongoDbContext, IHostedService
         }
     }
 
-    public Task<IMongoCollection<UserProfile>> Users
+    public Task<IMongoCollection<UserProfile>> UsersAsync
     {
         get
         {
@@ -55,7 +55,7 @@ public sealed class MongoDbContext : IMongoDbContext, IHostedService
         }
     }
 
-    public Task<IMongoCollection<StrokeEvent>> StrokeEvents
+    public Task<IMongoCollection<StrokeEvent>> StrokeEventsAsync
     {
         get
         {
@@ -117,4 +117,24 @@ public sealed class MongoDbContext : IMongoDbContext, IHostedService
     {
         return Task.CompletedTask;
     }
+}
+
+public interface ICancellationTokenProvider
+{
+    CancellationToken Token { get; }
+    public static ICancellationTokenProvider Wrap(CancellationToken token) => new CancellationTokenProviderAdapter(token);
+}
+
+internal sealed class CancellationTokenProviderAdapter : ICancellationTokenProvider
+{
+    private readonly CancellationToken _token;
+
+    public CancellationTokenProviderAdapter(CancellationToken token)
+    {
+        _token = token;
+    }
+
+    public CancellationToken Token => _token;
+
+    public static ICancellationTokenProvider Wrap(CancellationToken token) => new CancellationTokenProviderAdapter(token);
 }

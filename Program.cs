@@ -40,6 +40,7 @@ AddInjectableHostedService<IBoardService, BoardService>(builder.Services);
 AddInjectableHostedService<IMongoDbContext, MongoDbContext>(builder.Services);
 AddInjectableHostedService<IUserProfileService, UserProfileService>(builder.Services);
 builder.Services.AddSingleton<IStrokeEventService, StrokeEventService>();
+builder.Services.AddSingleton<ICancellationTokenProvider>(sp => ICancellationTokenProvider.Wrap(sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping));
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 

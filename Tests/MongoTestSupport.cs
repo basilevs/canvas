@@ -67,7 +67,8 @@ internal static class MongoTestSupport
             Assert.Inconclusive($"MongoDB cluster is unreachable: {ex.Message}");
         }
 
-        var context = new MongoDbContext(client, configuration);
+
+        var context = new MongoDbContext(client, configuration, ICancellationTokenProvider.Wrap(cancellationToken));
         return (context, client, databaseName);
     }
 

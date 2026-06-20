@@ -27,7 +27,7 @@ public sealed class UserProfileService : IUserProfileService, IHostedService
 
     public UserProfileService(IMongoDbContext mongoDbContext)
     {
-        _users = mongoDbContext.Users;
+        _users = mongoDbContext.UsersAsync;
     }
 
     public async Task<UserProfile> GetOrCreateProfileAsync(string userId, CancellationToken cancellationToken)

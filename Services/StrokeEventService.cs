@@ -45,7 +45,7 @@ public sealed class StrokeEventService : IStrokeEventService
         _context = mongoDbContext;
     }
 
-    private Task<IMongoCollection<StrokeEvent>> Events => _context.StrokeEvents;
+    private Task<IMongoCollection<StrokeEvent>> Events => _context.StrokeEventsAsync;
 
     public async Task<bool> AppendEventAsync(string boardId, EventType type, Stroke stroke, CancellationToken cancellationToken)
     {
