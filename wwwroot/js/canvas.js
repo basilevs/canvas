@@ -44,7 +44,12 @@ class WhiteboardCanvas {
     this.context = canvasElement.getContext('2d');
     this.handlers = handlers;
     this.confirmedStrokes = [];
-    this.previewStroke = null;
+    // Locally completed strokes that have been sent but not yet echoed back by
+    // the backend. Keyed by stroke id so several in-flight strokes can be drawn
+    // at once; each one is kept visible until its confirmed copy arrives via
+    // commitStroke. A single slot would let a freshly started stroke wipe out a
+    // prior preview that is still mid-send.
+    this.previewStrokes = new Map();
     this.remoteCursors = new Map();
     this.currentStroke = null;
     this.currentColor = DEFAULT_COLOR;
@@ -98,7 +103,7 @@ class WhiteboardCanvas {
 
   setSnapshot(strokes) {
     this.confirmedStrokes = Array.isArray(strokes) ? [...strokes] : [];
-    this.previewStroke = null;
+    this.previewStrokes.clear();
     this.#render();
     this.#renderVolatile();
   }
@@ -109,7 +114,7 @@ class WhiteboardCanvas {
     }
 
     const strokeId = stroke.id ?? stroke.Id;
-    this.previewStroke = this.previewStroke?.id === strokeId ? null : this.previewStroke;
+    this.previewStrokes.delete(strokeId);
 
     if (!this.confirmedStrokes.some(existing => getStrokeId(existing) === strokeId)) {
       this.confirmedStrokes.push(normalizeStroke(stroke));
@@ -124,9 +129,14 @@ class WhiteboardCanvas {
       return;
     }
 
+    let changed = this.previewStrokes.delete(strokeId);
     const index = this.confirmedStrokes.findIndex(existing => getStrokeId(existing) === strokeId);
     if (index !== -1) {
       this.confirmedStrokes.splice(index, 1);
+      changed = true;
+    }
+
+    if (changed) {
       this.#render();
       this.#renderVolatile();
     }
@@ -189,7 +199,6 @@ class WhiteboardCanvas {
     };
 
     this.#appendPoint(event);
-    this.previewStroke = this.currentStroke;
     this.#renderVolatile();
   };
 
@@ -200,7 +209,6 @@ class WhiteboardCanvas {
     }
     this.#updateCursor(event);
     this.#appendPoint(event);
-    this.previewStroke = this.currentStroke;
     this.#renderVolatile();
   };
 
@@ -221,7 +229,7 @@ class WhiteboardCanvas {
       SIMPLIFY_THRESHOLD_CSS_PX,
       completedStroke.width ?? completedStroke.Width ?? 4
     );
-    this.previewStroke = completedStroke;
+    this.previewStrokes.set(getStrokeId(completedStroke), completedStroke);
     this.#renderVolatile();
     this.handlers.onStrokeCompleted?.(completedStroke);
   };
@@ -330,9 +338,12 @@ class WhiteboardCanvas {
       return;
     }
 
-    const volatileStroke = this.currentStroke ?? this.previewStroke;
-    if (volatileStroke) {
-      this.#drawVolatileStroke(volatileStroke);
+    for (const previewStroke of this.previewStrokes.values()) {
+      this.#drawVolatileStroke(previewStroke);
+    }
+
+    if (this.currentStroke) {
+      this.#drawVolatileStroke(this.currentStroke);
     }
 
     for (const [userId, cursor] of this.remoteCursors.entries()) {
