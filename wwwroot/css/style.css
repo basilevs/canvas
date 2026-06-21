@@ -31,10 +31,7 @@
 .canvas-shell {
   position: relative;
   min-height: 32rem;
-  border: 1px solid var(--pico-muted-border-color);
-  border-radius: var(--pico-border-radius);
   overflow: hidden;
-  background: var(--pico-card-background-color);
 }
 
 #whiteboard-canvas {
@@ -45,18 +42,6 @@
   height: 100%;
   touch-action: none;
   cursor: crosshair;
-}
-
-.users-panel {
-  padding: 1rem;
-  border: 1px solid var(--pico-muted-border-color);
-  border-radius: var(--pico-border-radius);
-  background: var(--pico-card-background-color);
-}
-
-.users-panel ul {
-  margin: 0;
-  padding-left: 1rem;
 }
 
 .user-swatch {
