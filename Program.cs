@@ -57,6 +57,8 @@ app.UseExceptionHandler();
 app.UseMiddleware<UserIdentityMiddleware>();
 app.UseStaticFiles();
 
+app.MapGet("/favicon.ico", () => Results.Redirect("/favicon.svg", permanent: true));
+
 app.MapGet("/api/boards/{name}/history/{pageNumber:int}", async Task<Results<Ok<HistoryPageResponse>, StatusCodeHttpResult, BadRequest, NotFound>> (
     string name,
     int pageNumber,
