@@ -6,10 +6,12 @@ public sealed class UserIdentityMiddleware
     private const string UserIdItemKey = "UserId";
     private const string ContentSecurityPolicy =
         "default-src 'self'; " +
-        "script-src 'self' https://cdnjs.cloudflare.com; " +
-        "style-src 'self' https://cdn.jsdelivr.net; " +
+        "script-src 'self' 'sha384-/taWmisziXYpcfnYsumSUmNaiMvG/fF/OJOUCLnqCIYTrpOZy7WbFF6FfIxwOrfL'; " +
+        "style-src 'self' https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/; " +
         "connect-src 'self'; " +
         "img-src 'self' data:; " +
+        "object-src 'none'; " +
+        "base-uri 'none'; " +
         "frame-ancestors 'none'";
 
     private readonly RequestDelegate _next;
