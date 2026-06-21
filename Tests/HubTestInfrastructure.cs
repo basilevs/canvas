@@ -238,13 +238,28 @@ internal sealed class InMemoryStrokeEventRepository : IStrokeEventRepository
         return Task.FromResult(true);
     }
 
-    public Task<StrokeEventPage> GetEventsPageAsync(string boardId, int pageNumber, int pageSize, CancellationToken cancellationToken)
+    public Task<StrokeEventPageInfo?> GetEventsPageInfoAsync(string boardId, int pageNumber, int pageSize, CancellationToken cancellationToken)
     {
         var ordered = OrderedFor(boardId);
         var totalEvents = ordered.Count;
         var totalPages = (int)((totalEvents + (long)pageSize - 1) / pageSize);
-        var slice = ordered.Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList();
-        return Task.FromResult(new StrokeEventPage(slice, totalEvents, totalPages));
+        if (pageNumber > totalPages)
+        {
+            return Task.FromResult<StrokeEventPageInfo?>(null);
+        }
+
+        var lastIndex = (int)(Math.Min((long)pageNumber * pageSize, totalEvents) - 1);
+        return Task.FromResult<StrokeEventPageInfo?>(
+            new StrokeEventPageInfo(totalEvents, totalPages, ordered[lastIndex].Timestamp));
+    }
+
+    public Task<IReadOnlyList<StrokeEvent>> GetPageEventsAsync(string boardId, int pageNumber, int pageSize, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<StrokeEvent> slice = OrderedFor(boardId)
+            .Skip((pageNumber - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+        return Task.FromResult(slice);
     }
 
     public Task<IReadOnlyList<StrokeEvent>> GetEventsSinceAsync(string boardId, DateTime sinceTimestamp, CancellationToken cancellationToken)

@@ -1,10 +1,15 @@
 using Canvas.Models;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace Canvas.Services;
 
-/// <summary>A page of stroke-history events plus pagination totals.</summary>
-public sealed record StrokeEventPage(IReadOnlyList<StrokeEvent> Events, long TotalEvents, int TotalPages);
+/// <summary>
+/// Lightweight metadata for a single history page: the pagination totals plus the
+/// timestamp of the page's most-recent event. Lets a caller compute cache
+/// validators without transferring the page's documents.
+/// </summary>
+public sealed record StrokeEventPageInfo(long TotalEvents, int TotalPages, DateTime LastEventTimestamp);
 
 public interface IStrokeEventRepository
 {
@@ -16,8 +21,20 @@ public interface IStrokeEventRepository
     /// </summary>
     Task<bool> AppendEventAsync(string boardId, EventType type, Stroke stroke, CancellationToken cancellationToken);
 
-    /// <summary>Returns an oldest-first page of the board's events plus totals.</summary>
-    Task<StrokeEventPage> GetEventsPageAsync(string boardId, int pageNumber, int pageSize, CancellationToken cancellationToken);
+    /// <summary>
+    /// Returns pagination totals and the timestamp of the page's most-recent event
+    /// in a single round-trip without transferring the page's documents, or
+    /// <see langword="null"/> when the requested page is beyond the last page.
+    /// Use to answer conditional GETs without paying the bandwidth of the page.
+    /// </summary>
+    Task<StrokeEventPageInfo?> GetEventsPageInfoAsync(string boardId, int pageNumber, int pageSize, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns just the oldest-first events of a page, without re-counting the log.
+    /// Pair with <see cref="GetEventsPageInfoAsync"/>, which already supplies the
+    /// totals, to materialize a page body in a single additional round-trip.
+    /// </summary>
+    Task<IReadOnlyList<StrokeEvent>> GetPageEventsAsync(string boardId, int pageNumber, int pageSize, CancellationToken cancellationToken);
 
     /// <summary>Returns all events with <c>Timestamp &gt;= sinceTimestamp</c>, oldest-first (inclusive).</summary>
     Task<IReadOnlyList<StrokeEvent>> GetEventsSinceAsync(string boardId, DateTime sinceTimestamp, CancellationToken cancellationToken);
@@ -85,7 +102,67 @@ public sealed class StrokeEventRepository : IStrokeEventRepository
         return true;
     }
 
-    public async Task<StrokeEventPage> GetEventsPageAsync(string boardId, int pageNumber, int pageSize, CancellationToken cancellationToken)
+    public async Task<StrokeEventPageInfo?> GetEventsPageInfoAsync(string boardId, int pageNumber, int pageSize, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(boardId);
+        if (pageNumber < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pageNumber));
+        }
+
+        if (pageSize < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pageSize));
+        }
+
+        // One $facet aggregation yields both the board's total event count and the
+        // timestamp of the requested page's most-recent event in a single
+        // round-trip, transferring only those two scalars rather than the page's
+        // documents. `pageLast` walks the same chronological order as the page read
+        // and groups out the final event's timestamp via $last so the boundary
+        // matches GetPageEventsAsync exactly.
+        var pipeline = new BsonDocument[]
+        {
+            new("$match", new BsonDocument("BoardId", boardId)),
+            new("$facet", new BsonDocument
+            {
+                ["total"] = new BsonArray { new BsonDocument("$count", "value") },
+                ["pageLast"] = new BsonArray
+                {
+                    new BsonDocument("$sort", new BsonDocument { ["Timestamp"] = 1, ["Stroke.Id"] = 1 }),
+                    new BsonDocument("$skip", (long)(pageNumber - 1) * pageSize),
+                    new BsonDocument("$limit", (long)pageSize),
+                    new BsonDocument("$group", new BsonDocument
+                    {
+                        ["_id"] = BsonNull.Value,
+                        ["value"] = new BsonDocument("$last", "$Timestamp")
+                    })
+                }
+            })
+        };
+
+        var events = await Events;
+        var facet = await events
+            .Aggregate<BsonDocument>(pipeline, cancellationToken: cancellationToken)
+            .FirstAsync(cancellationToken);
+
+        // $count emits no document for an empty match, so an absent total means zero.
+        var totalArray = facet["total"].AsBsonArray;
+        var totalEvents = totalArray.Count == 0 ? 0L : totalArray[0]["value"].ToInt64();
+        var totalPages = (int)((totalEvents + pageSize - 1) / pageSize);
+
+        if (pageNumber > totalPages)
+        {
+            return null;
+        }
+
+        // pageNumber <= totalPages guarantees the page holds at least one event, so
+        // the grouped boundary timestamp is present.
+        var lastTimestamp = facet["pageLast"].AsBsonArray[0]["value"].ToUniversalTime();
+        return new StrokeEventPageInfo(totalEvents, totalPages, lastTimestamp);
+    }
+
+    public async Task<IReadOnlyList<StrokeEvent>> GetPageEventsAsync(string boardId, int pageNumber, int pageSize, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(boardId);
         if (pageNumber < 1)
@@ -99,22 +176,11 @@ public sealed class StrokeEventRepository : IStrokeEventRepository
         }
 
         var filter = Builders<StrokeEvent>.Filter.Eq(e => e.BoardId, boardId);
-        var events = await Events;
-        var totalEvents = await events.CountDocumentsAsync(filter, cancellationToken: cancellationToken);
-        var totalPages = (int)((totalEvents + pageSize - 1) / pageSize);
-
-        if (pageNumber > totalPages)
-        {
-            return new StrokeEventPage([], totalEvents, totalPages);
-        }
-
-        var eventsList = await events.Find(filter)
+        return await (await Events).Find(filter)
             .Sort(ChronologicalSort)
             .Skip((pageNumber - 1) * pageSize)
             .Limit(pageSize)
             .ToListAsync(cancellationToken);
-
-        return new StrokeEventPage(eventsList, totalEvents, totalPages);
     }
 
     public async Task<IReadOnlyList<StrokeEvent>> GetEventsSinceAsync(string boardId, DateTime sinceTimestamp, CancellationToken cancellationToken)

@@ -76,7 +76,10 @@ app.MapGet("/api/boards/{name}/history/{pageNumber:int}", async Task<Results<Ok<
         return TypedResults.NotFound();
     }
 
-    var page = await strokeEventRepository.GetEventsPageAsync(
+    // Resolve the page's totals and most-recent-event timestamp without loading
+    // its documents, so a conditional GET that revalidates to 304 never transfers
+    // the page off the database.
+    var pageInfo = await strokeEventRepository.GetEventsPageInfoAsync(
         boardId,
         pageNumber,
         StrokeEventRepository.DefaultPageSize,
@@ -84,7 +87,7 @@ app.MapGet("/api/boards/{name}/history/{pageNumber:int}", async Task<Results<Ok<
 
     // A board with no events returns 404 for page 1 ("no history"); any page
     // beyond the last is likewise absent.
-    if (pageNumber > page.TotalPages)
+    if (pageInfo is null)
     {
         return TypedResults.NotFound();
     }
@@ -92,9 +95,9 @@ app.MapGet("/api/boards/{name}/history/{pageNumber:int}", async Task<Results<Ok<
     // Last-Modified is the page's most-recent event truncated to whole seconds,
     // formatted as an RFC1123 HTTP-date so a client's echoed If-Modified-Since
     // can be compared by exact string equality.
-    var lastModified = TruncateToSeconds(page.Events[^1].Timestamp)
+    var lastModified = TruncateToSeconds(pageInfo.LastEventTimestamp)
         .ToString("R", CultureInfo.InvariantCulture);
-    var isCompletePage = pageNumber < page.TotalPages;
+    var isCompletePage = pageNumber < pageInfo.TotalPages;
 
     httpContext.Response.Headers.LastModified = lastModified;
     // Complete pages are immutable for a year but omit `immutable` so a manual
@@ -122,11 +125,20 @@ app.MapGet("/api/boards/{name}/history/{pageNumber:int}", async Task<Results<Ok<
         return TypedResults.StatusCode(StatusCodes.Status304NotModified);
     }
 
+    // The validator didn't match, so the client genuinely needs the body. Load
+    // only the page's events — the totals already came from the metadata lookup,
+    // so no second count is issued.
+    var pageEvents = await strokeEventRepository.GetPageEventsAsync(
+        boardId,
+        pageNumber,
+        StrokeEventRepository.DefaultPageSize,
+        cancellationToken);
+
     var response = new HistoryPageResponse(
         pageNumber,
-        (int)page.TotalEvents,
-        page.TotalPages,
-        page.Events.Select(MapStrokeEvent).ToList());
+        (int)pageInfo.TotalEvents,
+        pageInfo.TotalPages,
+        pageEvents.Select(MapStrokeEvent).ToList());
 
     return TypedResults.Ok(response);
 })

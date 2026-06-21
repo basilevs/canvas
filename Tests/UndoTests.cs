@@ -167,7 +167,6 @@ public sealed class UndoTests
 
     private async Task<IReadOnlyList<StrokeEvent>> GetAllEventsAsync()
     {
-        var page = await _strokeEvents.GetEventsPageAsync(BoardId, 1, StrokeEventRepository.DefaultPageSize, default);
-        return page.Events;
+        return await _strokeEvents.GetPageEventsAsync(BoardId, 1, StrokeEventRepository.DefaultPageSize, default);
     }
 }
