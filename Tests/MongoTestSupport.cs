@@ -1,5 +1,6 @@
 using Canvas.Services;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 
 namespace Canvas.Tests;
@@ -68,7 +69,8 @@ internal static class MongoTestSupport
         }
 
 
-        var context = new MongoDbContext(client, configuration, ICancellationTokenProvider.Wrap(cancellationToken));
+        var logger = LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<MongoDbContext>();
+        var context = new MongoDbContext(client, configuration, ICancellationTokenProvider.Wrap(cancellationToken), logger);
         return (context, client, databaseName);
     }
 
