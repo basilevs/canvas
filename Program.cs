@@ -17,8 +17,10 @@ builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IMongoClient>(serviceProvider =>
 {
-    var connectionString = serviceProvider.GetRequiredService<IConfiguration>()["MongoDB_ConnectionString"]
-        ?? throw new InvalidOperationException("MongoDB connection string is not configured.");
+    var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+    var connectionString = configuration["MongoDB_ConnectionString"]
+        ?? throw new InvalidOperationException(
+            $"MongoDB connection string is not configured. Available configuration keys: {string.Join(", ", configuration.AsEnumerable().Select(entry => entry.Key))}.");
     return new MongoClient(connectionString);
 });
 
