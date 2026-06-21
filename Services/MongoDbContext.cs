@@ -1,4 +1,6 @@
 using Canvas.Models;
+using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace Canvas.Services;
@@ -21,17 +23,21 @@ public sealed class MongoDbContext : IMongoDbContext, IHostedService
 {
     private const string StrokeEventsCollectionName = "StrokeEvents";
 
+    private static readonly HttpClient EgressIpHttpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
+
     private readonly IMongoDatabase _database;
     private readonly IMongoCollection<Board> _boards;
     private readonly IMongoCollection<UserProfile> _users;
+    private readonly ILogger<MongoDbContext> _logger;
     private IMongoCollection<StrokeEvent>? _strokeEvents;
     private readonly Task _init;
 
-    public MongoDbContext(IMongoClient client, IConfiguration configuration, ICancellationTokenProvider cancellationToken)
+    public MongoDbContext(IMongoClient client, IConfiguration configuration, ICancellationTokenProvider cancellationToken, ILogger<MongoDbContext> logger)
     {
         var databaseName = configuration["MongoDB:DatabaseName"]
             ?? throw new InvalidOperationException("MongoDB database name is not configured.");
 
+        _logger = logger;
         _database = client.GetDatabase(databaseName);
         _boards = _database.GetCollection<Board>("Boards");
         _users = _database.GetCollection<UserProfile>("Users");
@@ -76,6 +82,8 @@ public sealed class MongoDbContext : IMongoDbContext, IHostedService
     }
 
     private async Task Init(CancellationToken cancellationToken) {
+        await VerifyConnectionAsync(cancellationToken);
+
         var existing = await _database
             .ListCollectionNames(new ListCollectionNamesOptions
             {
@@ -110,6 +118,45 @@ public sealed class MongoDbContext : IMongoDbContext, IHostedService
 
         await collection.Indexes.CreateManyAsync([strokeIdIndex, userTimestampIndex], cancellationToken);
         _strokeEvents = collection;
+    }
+
+    /// <summary>
+    /// Pings the MongoDB server before any schema work runs. The deployment's
+    /// egress IP is logged and embedded in the failure message so connection
+    /// problems caused by IP-allow-list misconfiguration are diagnosable.
+    /// </summary>
+    private async Task VerifyConnectionAsync(CancellationToken cancellationToken)
+    {
+        var egressIp = await GetEgressIpAsync(cancellationToken);
+        _logger.LogInformation("Verifying MongoDB connection. Egress IP: {EgressIp}", egressIp);
+
+        try
+        {
+            await _database.RunCommandAsync<BsonDocument>(
+                new BsonDocument("ping", 1),
+                readPreference: null,
+                cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Failed to connect to MongoDB. Egress IP: {egressIp}. Ensure this IP is allow-listed.",
+                ex);
+        }
+    }
+
+    private async Task<string> GetEgressIpAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var ip = await EgressIpHttpClient.GetStringAsync("https://api.ipify.org", cancellationToken);
+            return ip.Trim();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unable to determine egress IP.");
+            return "unknown";
+        }
     }
 
 
