@@ -19,6 +19,7 @@
 .toolbar-controls label {
   min-width: 7rem;
   margin: 1rem;
+  align-self: flex-start;
 }
 
 .board-layout {
