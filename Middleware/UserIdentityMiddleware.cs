@@ -12,6 +12,7 @@ public sealed class UserIdentityMiddleware
         "img-src 'self' data:; " +
         "object-src 'none'; " +
         "base-uri 'none'; " +
+        "form-action 'self'; " +
         "frame-ancestors 'none'";
 
     private readonly RequestDelegate _next;
