@@ -2,6 +2,12 @@
 
 Collaborative whiteboard demo built with ASP.NET Core, MongoDB, SignalR, HTML5 Canvas, and vanilla JavaScript.
 
+# Usage
+
+Open https://canvas-pb73p.ondigitalocean.app
+
+Note: this is a test deployment; data continuity or availability are not guaranteed.
+
 ## Architecture
 
 - `Program.cs` wires MongoDB, SignalR, static files, and the minimal API endpoints.
