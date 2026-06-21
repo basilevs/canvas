@@ -52,6 +52,7 @@ class WhiteboardCanvas {
     this.previewStrokes = new Map();
     this.remoteCursors = new Map();
     this.currentStroke = null;
+    this.activePointerId = null;
     this.currentColor = DEFAULT_COLOR;
     this.currentWidth = 4;
     this.replaying = false;
@@ -182,6 +183,16 @@ class WhiteboardCanvas {
       return;
     }
 
+    // A stroke is owned by the single pointer that started it. Ignore additional
+    // pointers (e.g. a second finger during a pinch) while one is active; the
+    // extra touch would otherwise feed its samples into the same stroke and
+    // produce rapid zig-zags between the two contact points.
+    if (this.currentStroke) {
+      debugLog('[ptr] DROP down extra pointer', { id: event.pointerId, active: this.activePointerId });
+      return;
+    }
+
+    this.activePointerId = event.pointerId;
     debugLog('[ptr] down start', {
       type: event.pointerType,
       pressure: Number(event.pressure?.toFixed?.(2) ?? event.pressure),
@@ -203,6 +214,10 @@ class WhiteboardCanvas {
   };
 
   #handlePointerMove = (event) => {
+    if (this.currentStroke && event.pointerId !== this.activePointerId) {
+      debugLog('[ptr] DROP move pointer', { id: event.pointerId, active: this.activePointerId });
+      return;
+    }
     if (this.currentStroke && event.pointerType !== this.currentStroke.pointerType) {
       debugLog('[ptr] DROP move type', { type: event.pointerType, active: this.currentStroke.pointerType });
       return;
@@ -216,6 +231,10 @@ class WhiteboardCanvas {
     if (!this.currentStroke) {
       return;
     }
+    if (event.pointerId !== this.activePointerId) {
+      debugLog('[ptr] DROP up pointer', { id: event.pointerId, active: this.activePointerId });
+      return;
+    }
     if (event.pointerType !== this.currentStroke.pointerType) {
       debugLog('[ptr] DROP up type', { type: event.pointerType, active: this.currentStroke.pointerType });
       return;
@@ -224,6 +243,7 @@ class WhiteboardCanvas {
     this.#appendPoint(event);
     const completedStroke = this.currentStroke;
     this.currentStroke = null;
+    this.activePointerId = null;
     completedStroke.points = simplifyPointsVisvalingamWhyatt(
       completedStroke.points,
       SIMPLIFY_THRESHOLD_CSS_PX,
