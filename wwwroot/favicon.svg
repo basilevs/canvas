@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Canvas / paper -->
+  <rect x="10" y="12" width="44" height="34" rx="4" fill="#ffffff" stroke="#1e88e5" stroke-width="3"/>
+  <!-- Color splashes on the canvas -->
+  <circle cx="22" cy="24" r="4" fill="#ff6f61"/>
+  <circle cx="34" cy="30" r="3" fill="#43a047"/>
+  <circle cx="44" cy="22" r="3.5" fill="#fbc02d"/>
+
+  <!-- Brush 1 (leans left, pointing up) -->
+  <g transform="rotate(-22 32 48)">
+    <rect x="29" y="44" width="6" height="20" rx="3" fill="#6d4c41"/>
+    <rect x="28.5" y="40" width="7" height="6" rx="1.5" fill="#b0bec5"/>
+    <path d="M28 41 L36 41 L34 32 Q32 30 30 32 Z" fill="#1e88e5"/>
+  </g>
+
+  <!-- Brush 2 (leans right, pointing up) -->
+  <g transform="rotate(22 32 48)">
+    <rect x="29" y="44" width="6" height="20" rx="3" fill="#8d6e63"/>
+    <rect x="28.5" y="40" width="7" height="6" rx="1.5" fill="#b0bec5"/>
+    <path d="M28 41 L36 41 L34 32 Q32 30 30 32 Z" fill="#ff6f61"/>
+  </g>
+</svg>
