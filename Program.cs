@@ -36,10 +36,10 @@ static void AddInjectableHostedService<TService, TImplementation>(IServiceCollec
     services.AddSingleton<TService>(provider => provider.GetRequiredService<TImplementation>());
 }
 
-AddInjectableHostedService<IBoardService, BoardService>(builder.Services);
+AddInjectableHostedService<IBoardRepository, BoardRepository>(builder.Services);
 AddInjectableHostedService<IMongoDbContext, MongoDbContext>(builder.Services);
-AddInjectableHostedService<IUserProfileService, UserProfileService>(builder.Services);
-builder.Services.AddSingleton<IStrokeEventService, StrokeEventService>();
+AddInjectableHostedService<IUserProfileRepository, UserProfileRepository>(builder.Services);
+builder.Services.AddSingleton<IStrokeEventRepository, StrokeEventRepository>();
 builder.Services.AddSingleton<ICancellationTokenProvider>(sp => ICancellationTokenProvider.Wrap(sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping));
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
@@ -59,8 +59,8 @@ app.MapGet("/api/boards/{name}/history/{pageNumber:int}", async Task<Results<Ok<
     string name,
     int pageNumber,
     HttpContext httpContext,
-    IBoardService boardService,
-    IStrokeEventService strokeEventService,
+    IBoardRepository boardRepository,
+    IStrokeEventRepository strokeEventRepository,
     CancellationToken cancellationToken) =>
 {
     if (!BoardNameNormalizer.TryNormalizeBoardName(name, out var boardId) || pageNumber < 1)
@@ -68,16 +68,16 @@ app.MapGet("/api/boards/{name}/history/{pageNumber:int}", async Task<Results<Ok<
         return TypedResults.BadRequest();
     }
 
-    var board = await boardService.GetBoardAsync(boardId, cancellationToken);
+    var board = await boardRepository.GetBoardAsync(boardId, cancellationToken);
     if (board is null)
     {
         return TypedResults.NotFound();
     }
 
-    var page = await strokeEventService.GetEventsPageAsync(
+    var page = await strokeEventRepository.GetEventsPageAsync(
         boardId,
         pageNumber,
-        StrokeEventService.DefaultPageSize,
+        StrokeEventRepository.DefaultPageSize,
         cancellationToken);
 
     // A board with no events returns 404 for page 1 ("no history"); any page
@@ -140,13 +140,13 @@ app.MapGet("/new", () => Results.Redirect($"/boards/{GenerateBoardName()}"))
 
 app.MapGet("/", async Task<IResult> (
     HttpContext context,
-    IUserProfileService userProfileService,
+    IUserProfileRepository userProfileRepository,
     CancellationToken cancellationToken) =>
 {
     var userId = context.Items["UserId"] as string
         ?? throw new InvalidOperationException("User identity is not available.");
 
-    var lastBoardName = await userProfileService.GetLastBoardAsync(userId, cancellationToken);
+    var lastBoardName = await userProfileRepository.GetLastBoardAsync(userId, cancellationToken);
     return Results.Redirect(lastBoardName is null ? "/new" : $"/boards/{lastBoardName}");
 })
 .ExcludeFromDescription();

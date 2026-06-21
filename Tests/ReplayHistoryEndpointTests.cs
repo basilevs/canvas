@@ -12,11 +12,11 @@ namespace Canvas.Tests;
 [TestClass]
 public sealed class ReplayHistoryEndpointTests
 {
-    private const int PageSize = StrokeEventService.DefaultPageSize;
+    private const int PageSize = StrokeEventRepository.DefaultPageSize;
 
     private WebApplicationFactory<Program> _factory = null!;
     private string _databaseName = null!;
-    private IStrokeEventService _strokeEvents = null!;
+    private IStrokeEventRepository _strokeEvents = null!;
 
     public TestContext TestContext { get; set; } = null!;
 
@@ -44,7 +44,7 @@ public sealed class ReplayHistoryEndpointTests
 
         try
         {
-            _strokeEvents = _factory.Services.GetRequiredService<IStrokeEventService>();
+            _strokeEvents = _factory.Services.GetRequiredService<IStrokeEventRepository>();
         }
         catch (Exception ex) when (ex is MongoDB.Driver.MongoException or TimeoutException)
         {
@@ -169,8 +169,8 @@ public sealed class ReplayHistoryEndpointTests
 
     private async Task SeedBoardAsync(string boardId)
     {
-        var boardService = _factory.Services.GetRequiredService<IBoardService>();
-        await boardService.GetOrCreateBoardAsync(boardId, TestContext.CancellationTokenSource.Token);
+        var boardRepository = _factory.Services.GetRequiredService<IBoardRepository>();
+        await boardRepository.GetOrCreateBoardAsync(boardId, TestContext.CancellationTokenSource.Token);
     }
 
     private async Task<string> AppendAsync(string boardId, string userId)

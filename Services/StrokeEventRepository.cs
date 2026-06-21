@@ -6,7 +6,7 @@ namespace Canvas.Services;
 /// <summary>A page of stroke-history events plus pagination totals.</summary>
 public sealed record StrokeEventPage(IReadOnlyList<StrokeEvent> Events, long TotalEvents, int TotalPages);
 
-public interface IStrokeEventService
+public interface IStrokeEventRepository
 {
     /// <summary>
     /// Appends an event to the board's log, stamping the server timestamp. For
@@ -29,7 +29,7 @@ public interface IStrokeEventService
     Task<Stroke?> GetLastRemovableStrokeByUserAsync(string boardId, string userId, CancellationToken cancellationToken);
 }
 
-public sealed class StrokeEventService : IStrokeEventService
+public sealed class StrokeEventRepository : IStrokeEventRepository
 {
     /// <summary>Default page size for history pagination, optimized for throughput.</summary>
     public const int DefaultPageSize = 5000;
@@ -40,7 +40,7 @@ public sealed class StrokeEventService : IStrokeEventService
 
     private readonly IMongoDbContext _context;
 
-    public StrokeEventService(IMongoDbContext mongoDbContext)
+    public StrokeEventRepository(IMongoDbContext mongoDbContext)
     {
         _context = mongoDbContext;
     }

@@ -8,9 +8,9 @@ using MongoDB.Driver;
 namespace Canvas.Tests;
 
 // Integration coverage for undo (TASK-041): exercises the hub against a real
-// StrokeEventService backed by a throwaway MongoDB database so the index-backed
+// StrokeEventRepository backed by a throwaway MongoDB database so the index-backed
 // GetLastRemovableStrokeByUserAsync query is verified end-to-end. The board and
-// profile services are in-memory fakes — only the event log needs to be real.
+// profile repositories are in-memory fakes — only the event log needs to be real.
 [TestClass]
 public sealed class UndoTests
 {
@@ -19,9 +19,9 @@ public sealed class UndoTests
     private MongoDbContext _context = null!;
     private IMongoClient _client = null!;
     private string _databaseName = null!;
-    private StrokeEventService _strokeEvents = null!;
-    private InMemoryBoardService _boardService = null!;
-    private InMemoryUserProfileService _userProfiles = null!;
+    private StrokeEventRepository _strokeEvents = null!;
+    private InMemoryBoardRepository _boardService = null!;
+    private InMemoryUserProfileRepository _userProfiles = null!;
     private TestWhiteboardClient _group = null!;
 
     public TestContext TestContext { get; set; } = null!;
@@ -30,9 +30,9 @@ public sealed class UndoTests
     public async Task SetUpAsync()
     {
         (_context, _client, _databaseName) = await MongoTestSupport.CreateContextAsync(TestContext.CancellationTokenSource.Token);
-        _strokeEvents = new StrokeEventService(_context);
-        _boardService = new InMemoryBoardService();
-        _userProfiles = new InMemoryUserProfileService();
+        _strokeEvents = new StrokeEventRepository(_context);
+        _boardService = new InMemoryBoardRepository();
+        _userProfiles = new InMemoryUserProfileRepository();
         _group = new TestWhiteboardClient();
     }
 
@@ -167,7 +167,7 @@ public sealed class UndoTests
 
     private async Task<IReadOnlyList<StrokeEvent>> GetAllEventsAsync()
     {
-        var page = await _strokeEvents.GetEventsPageAsync(BoardId, 1, StrokeEventService.DefaultPageSize, default);
+        var page = await _strokeEvents.GetEventsPageAsync(BoardId, 1, StrokeEventRepository.DefaultPageSize, default);
         return page.Events;
     }
 }

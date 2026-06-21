@@ -12,20 +12,20 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
     private static readonly ConcurrentDictionary<string, DateTime> LastActivityRefreshes = new(StringComparer.Ordinal);
     private static readonly TimeSpan LastActivityRefreshInterval = TimeSpan.FromSeconds(30);
 
-    private readonly IBoardService _boardService;
-    private readonly IUserProfileService _userProfileService;
-    private readonly IStrokeEventService _strokeEventService;
+    private readonly IBoardRepository _boardRepository;
+    private readonly IUserProfileRepository _userProfileRepository;
+    private readonly IStrokeEventRepository _strokeEventRepository;
     private readonly ILogger<WhiteboardHub> _logger;
 
     public WhiteboardHub(
-        IBoardService boardService,
-        IUserProfileService userProfileService,
-        IStrokeEventService strokeEventService,
+        IBoardRepository boardRepository,
+        IUserProfileRepository userProfileRepository,
+        IStrokeEventRepository strokeEventRepository,
         ILogger<WhiteboardHub> logger)
     {
-        _boardService = boardService;
-        _userProfileService = userProfileService;
-        _strokeEventService = strokeEventService;
+        _boardRepository = boardRepository;
+        _userProfileRepository = userProfileRepository;
+        _strokeEventRepository = strokeEventRepository;
         _logger = logger;
     }
 
@@ -38,13 +38,13 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
             throw new HubException("Invalid board name.");
         }
 
-        var profileTask = _userProfileService.GetOrCreateProfileAsync(userId, cancellationToken);
-        var boardTask = _boardService.GetOrCreateBoardAsync(boardId, cancellationToken);
+        var profileTask = _userProfileRepository.GetOrCreateProfileAsync(userId, cancellationToken);
+        var boardTask = _boardRepository.GetOrCreateBoardAsync(boardId, cancellationToken);
         await Task.WhenAll(profileTask, boardTask);
 
         var profile = await profileTask;
-        await _userProfileService.SetLastBoardAsync(userId, boardId, cancellationToken);
-        await _boardService.UpdateLastActivityAsync(boardId, cancellationToken);
+        await _userProfileRepository.SetLastBoardAsync(userId, boardId, cancellationToken);
+        await _boardRepository.UpdateLastActivityAsync(boardId, cancellationToken);
         LastActivityRefreshes[boardId] = DateTime.UtcNow;
 
         if (Connections.TryGetValue(Context.ConnectionId, out var existingConnection) &&
@@ -63,7 +63,7 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
         var connectedUsers = await GetConnectedUsersAsync(boardId, cancellationToken);
         await Clients.Caller.ConnectedUsers(connectedUsers);
 
-        var tail = await _strokeEventService.GetEventsSinceAsync(boardId, sinceTimestamp, cancellationToken);
+        var tail = await _strokeEventRepository.GetEventsSinceAsync(boardId, sinceTimestamp, cancellationToken);
         foreach (var strokeEvent in tail)
         {
             if (strokeEvent.Type == EventType.Remove)
@@ -132,7 +132,7 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
             }).ToList()
         };
 
-        var appended = await _strokeEventService.AppendEventAsync(connection.BoardId, EventType.Add, persistedStroke, cancellationToken);
+        var appended = await _strokeEventRepository.AppendEventAsync(connection.BoardId, EventType.Add, persistedStroke, cancellationToken);
         if (!appended)
         {
             return;
@@ -141,7 +141,7 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
         await Clients.Group(connection.BoardId).StrokeReceived(ToStrokeResponse(persistedStroke));
         if (ShouldRefreshLastActivity(connection.BoardId))
         {
-            await _boardService.UpdateLastActivityAsync(connection.BoardId, cancellationToken);
+            await _boardRepository.UpdateLastActivityAsync(connection.BoardId, cancellationToken);
             LastActivityRefreshes[connection.BoardId] = DateTime.UtcNow;
         }
     }
@@ -152,7 +152,7 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
         var userId = GetUserId();
         var connection = GetConnection(boardName);
 
-        var stroke = await _strokeEventService.GetLastRemovableStrokeByUserAsync(
+        var stroke = await _strokeEventRepository.GetLastRemovableStrokeByUserAsync(
             connection.BoardId,
             userId,
             cancellationToken);
@@ -161,7 +161,7 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
             return;
         }
 
-        await _strokeEventService.AppendEventAsync(connection.BoardId, EventType.Remove, stroke, cancellationToken);
+        await _strokeEventRepository.AppendEventAsync(connection.BoardId, EventType.Remove, stroke, cancellationToken);
         await Clients.Group(connection.BoardId).StrokeRemoved(stroke.Id);
     }
 
@@ -171,7 +171,7 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
         var userId = GetUserId();
         var displayName = NormalizeDisplayName(name);
 
-        await _userProfileService.SetDisplayNameAsync(userId, displayName, cancellationToken);
+        await _userProfileRepository.SetDisplayNameAsync(userId, displayName, cancellationToken);
 
         if (Connections.TryGetValue(Context.ConnectionId, out var connection))
         {
@@ -242,7 +242,7 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        var displayNames = await _userProfileService.GetDisplayNamesAsync(userIds, cancellationToken);
+        var displayNames = await _userProfileRepository.GetDisplayNamesAsync(userIds, cancellationToken);
         return userIds.Select(userId => new ConnectedUserResponse(userId, displayNames[userId])).ToList();
     }
 

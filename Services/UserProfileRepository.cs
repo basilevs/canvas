@@ -3,7 +3,7 @@ using MongoDB.Driver;
 
 namespace Canvas.Services;
 
-public interface IUserProfileService
+public interface IUserProfileRepository
 {
     Task<UserProfile> GetOrCreateProfileAsync(string userId, CancellationToken cancellationToken);
 
@@ -20,12 +20,12 @@ public interface IUserProfileService
     Task<string?> GetLastBoardAsync(string userId, CancellationToken cancellationToken);
 }
 
-public sealed class UserProfileService : IUserProfileService, IHostedService
+public sealed class UserProfileRepository : IUserProfileRepository, IHostedService
 {
     private const string DefaultDisplayName = "Anonymous";
     private readonly Task<IMongoCollection<UserProfile>> _users;
 
-    public UserProfileService(IMongoDbContext mongoDbContext)
+    public UserProfileRepository(IMongoDbContext mongoDbContext)
     {
         _users = mongoDbContext.UsersAsync;
     }

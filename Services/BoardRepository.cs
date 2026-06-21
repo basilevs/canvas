@@ -3,7 +3,7 @@ using MongoDB.Driver;
 
 namespace Canvas.Services;
 
-public interface IBoardService
+public interface IBoardRepository
 {
     Task<Board> CreateBoardAsync(string boardId, CancellationToken cancellationToken);
 
@@ -14,12 +14,12 @@ public interface IBoardService
     Task UpdateLastActivityAsync(string boardId, CancellationToken cancellationToken);
 }
 
-public sealed class BoardService : IBoardService, IHostedService
+public sealed class BoardRepository : IBoardRepository, IHostedService
 {
     private static readonly TimeSpan SnapshotRetention = TimeSpan.FromDays(30);
     private readonly Task<IMongoCollection<Board>> _boards;
 
-    public BoardService(IMongoDbContext mongoDbContext)
+    public BoardRepository(IMongoDbContext mongoDbContext)
     {
         _boards = mongoDbContext.BoardsAsync;
     }

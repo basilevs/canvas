@@ -11,13 +11,13 @@ public sealed class DisplayNameTests
     [TestMethod]
     public async Task SetDisplayName_persists_and_broadcasts()
     {
-        var hub = CreateHub(out _, out var group, out var boardService, out var userProfileService, out _, out _);
-        await boardService.CreateBoardAsync("demo-board", default);
+        var hub = CreateHub(out _, out var group, out var boardRepository, out var userProfileRepository, out _, out _);
+        await boardRepository.CreateBoardAsync("demo-board", default);
 
         await hub.JoinBoard("demo-board", DateTime.UnixEpoch);
         await hub.SetDisplayName("New Name");
 
-        var profile = await userProfileService.GetOrCreateProfileAsync("user-1", default);
+        var profile = await userProfileRepository.GetOrCreateProfileAsync("user-1", default);
         Assert.AreEqual("New Name", profile.DisplayName);
         Assert.HasCount(1, group.UserRenamedCalls);
         Assert.AreEqual(("user-1", "New Name"), group.UserRenamedCalls[0]);
@@ -26,8 +26,8 @@ public sealed class DisplayNameTests
     [TestMethod]
     public async Task SetDisplayName_rejects_empty_or_long_names()
     {
-        var hub = CreateHub(out _, out _, out var boardService, out _, out _, out _);
-        await boardService.CreateBoardAsync("demo-board", default);
+        var hub = CreateHub(out _, out _, out var boardRepository, out _, out _, out _);
+        await boardRepository.CreateBoardAsync("demo-board", default);
         await hub.JoinBoard("demo-board", DateTime.UnixEpoch);
 
         await AssertHubExceptionAsync(() => hub.SetDisplayName(""));
@@ -37,19 +37,19 @@ public sealed class DisplayNameTests
     private static WhiteboardHub CreateHub(
         out TestWhiteboardClient caller,
         out TestWhiteboardClient group,
-        out InMemoryBoardService boardService,
-        out InMemoryUserProfileService userProfileService,
+        out InMemoryBoardRepository boardRepository,
+        out InMemoryUserProfileRepository userProfileRepository,
         out TestHubCallerContext context,
         out TestGroupManager groups)
     {
         caller = new TestWhiteboardClient();
         group = new TestWhiteboardClient();
-        boardService = new InMemoryBoardService();
-        userProfileService = new InMemoryUserProfileService();
+        boardRepository = new InMemoryBoardRepository();
+        userProfileRepository = new InMemoryUserProfileRepository();
         context = new TestHubCallerContext("conn-" + Guid.NewGuid().ToString("N"), "user-1");
         groups = new TestGroupManager();
 
-        var hub = new WhiteboardHub(boardService, userProfileService, new InMemoryStrokeEventService(), NullLogger<WhiteboardHub>.Instance)
+        var hub = new WhiteboardHub(boardRepository, userProfileRepository, new InMemoryStrokeEventRepository(), NullLogger<WhiteboardHub>.Instance)
         {
             Context = context,
             Clients = new TestHubCallerClients(caller, group),

@@ -12,9 +12,9 @@ public sealed class WhiteboardHubTests
     [TestMethod]
     public async Task JoinBoard_sends_roster_and_broadcasts_user_joined()
     {
-        var hub = CreateHub(out var caller, out var group, out var boardService, out var userProfileService, out _, out var groups, out _);
-        await boardService.CreateBoardAsync("demo-board", default);
-        await userProfileService.SetDisplayNameAsync("user-1", "Alice", default);
+        var hub = CreateHub(out var caller, out var group, out var boardRepository, out var userProfileRepository, out _, out var groups, out _);
+        await boardRepository.CreateBoardAsync("demo-board", default);
+        await userProfileRepository.SetDisplayNameAsync("user-1", "Alice", default);
 
         await hub.JoinBoard("Demo-Board", DateTime.UnixEpoch);
 
@@ -28,8 +28,8 @@ public sealed class WhiteboardHubTests
     [TestMethod]
     public async Task JoinBoard_replays_event_tail_to_caller()
     {
-        var hub = CreateHub(out var caller, out _, out var boardService, out _, out _, out _, out var strokeEvents);
-        await boardService.CreateBoardAsync("demo-board", default);
+        var hub = CreateHub(out var caller, out _, out var boardRepository, out _, out _, out _, out var strokeEvents);
+        await boardRepository.CreateBoardAsync("demo-board", default);
         await strokeEvents.AppendEventAsync("demo-board", EventType.Add, NewStroke("user-2"), default);
         await strokeEvents.AppendEventAsync("demo-board", EventType.Add, NewStroke("user-2"), default);
 
@@ -41,8 +41,8 @@ public sealed class WhiteboardHubTests
     [TestMethod]
     public async Task SendStroke_logs_once_and_broadcasts_once()
     {
-        var hub = CreateHub(out _, out var group, out var boardService, out _, out _, out _, out var strokeEvents);
-        await boardService.CreateBoardAsync("demo-board", default);
+        var hub = CreateHub(out _, out var group, out var boardRepository, out _, out _, out _, out var strokeEvents);
+        await boardRepository.CreateBoardAsync("demo-board", default);
 
         await hub.JoinBoard("demo-board", DateTime.UnixEpoch);
 
@@ -63,8 +63,8 @@ public sealed class WhiteboardHubTests
     [TestMethod]
     public async Task UndoLastStroke_removes_callers_last_stroke_and_broadcasts()
     {
-        var hub = CreateHub(out _, out var group, out var boardService, out _, out _, out _, out var strokeEvents);
-        await boardService.CreateBoardAsync("demo-board", default);
+        var hub = CreateHub(out _, out var group, out var boardRepository, out _, out _, out _, out var strokeEvents);
+        await boardRepository.CreateBoardAsync("demo-board", default);
         await hub.JoinBoard("demo-board", DateTime.UnixEpoch);
 
         var stroke = new StrokeInput(
@@ -84,8 +84,8 @@ public sealed class WhiteboardHubTests
     [TestMethod]
     public async Task UndoLastStroke_is_noop_when_caller_has_no_strokes()
     {
-        var hub = CreateHub(out _, out var group, out var boardService, out _, out _, out _, out var strokeEvents);
-        await boardService.CreateBoardAsync("demo-board", default);
+        var hub = CreateHub(out _, out var group, out var boardRepository, out _, out _, out _, out var strokeEvents);
+        await boardRepository.CreateBoardAsync("demo-board", default);
         await hub.JoinBoard("demo-board", DateTime.UnixEpoch);
 
         await hub.UndoLastStroke("demo-board");
@@ -110,21 +110,21 @@ public sealed class WhiteboardHubTests
     private static WhiteboardHub CreateHub(
         out TestWhiteboardClient caller,
         out TestWhiteboardClient group,
-        out InMemoryBoardService boardService,
-        out InMemoryUserProfileService userProfileService,
+        out InMemoryBoardRepository boardRepository,
+        out InMemoryUserProfileRepository userProfileRepository,
         out TestHubCallerContext context,
         out TestGroupManager groups,
-        out InMemoryStrokeEventService strokeEventService)
+        out InMemoryStrokeEventRepository strokeEventRepository)
     {
         caller = new TestWhiteboardClient();
         group = new TestWhiteboardClient();
-        boardService = new InMemoryBoardService();
-        userProfileService = new InMemoryUserProfileService();
-        strokeEventService = new InMemoryStrokeEventService();
+        boardRepository = new InMemoryBoardRepository();
+        userProfileRepository = new InMemoryUserProfileRepository();
+        strokeEventRepository = new InMemoryStrokeEventRepository();
         context = new TestHubCallerContext("conn-" + Guid.NewGuid().ToString("N"), "user-1");
         groups = new TestGroupManager();
 
-        var hub = new WhiteboardHub(boardService, userProfileService, strokeEventService, NullLogger<WhiteboardHub>.Instance)
+        var hub = new WhiteboardHub(boardRepository, userProfileRepository, strokeEventRepository, NullLogger<WhiteboardHub>.Instance)
         {
             Context = context,
             Clients = new TestHubCallerClients(caller, group),

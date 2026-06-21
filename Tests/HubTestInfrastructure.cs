@@ -165,7 +165,7 @@ internal sealed class TestHubCallerClients : IHubCallerClients<IWhiteboardClient
     public IWhiteboardClient AllExcept(IReadOnlyList<string> excludedConnectionIds) => GroupClient;
 }
 
-internal sealed class InMemoryBoardService : IBoardService
+internal sealed class InMemoryBoardRepository : IBoardRepository
 {
     private readonly Dictionary<string, Board> _boards = new(StringComparer.Ordinal);
 
@@ -210,7 +210,7 @@ internal sealed class InMemoryBoardService : IBoardService
     }
 }
 
-internal sealed class InMemoryStrokeEventService : IStrokeEventService
+internal sealed class InMemoryStrokeEventRepository : IStrokeEventRepository
 {
     private readonly List<StrokeEvent> _events = [];
     private long _sequence;
@@ -281,7 +281,7 @@ internal sealed class InMemoryStrokeEventService : IStrokeEventService
     }
 }
 
-internal sealed class InMemoryUserProfileService : IUserProfileService
+internal sealed class InMemoryUserProfileRepository : IUserProfileRepository
 {
     private readonly Dictionary<string, UserProfile> _profiles = new(StringComparer.Ordinal);
 

@@ -5,18 +5,18 @@ using MongoDB.Driver;
 namespace Canvas.Tests;
 
 [TestClass]
-public sealed class StrokeEventServiceTests
+public sealed class StrokeEventRepositoryTests
 {
     private MongoDbContext _context = null!;
     private IMongoClient _client = null!;
     private string _databaseName = null!;
-    private StrokeEventService _service = null!;
+    private StrokeEventRepository _service = null!;
 
     [TestInitialize]
     public async Task SetUpAsync()
     {
         (_context, _client, _databaseName) = await MongoTestSupport.CreateContextAsync(TestContext.CancellationTokenSource.Token);
-        _service = new StrokeEventService(_context);
+        _service = new StrokeEventRepository(_context);
     }
 
     [TestCleanup]
@@ -37,7 +37,7 @@ public sealed class StrokeEventServiceTests
 
         await _service.AppendEventAsync("board-1", EventType.Add, NewStroke("user-1"), default);
 
-        var page = await _service.GetEventsPageAsync("board-1", 1, StrokeEventService.DefaultPageSize, default);
+        var page = await _service.GetEventsPageAsync("board-1", 1, StrokeEventRepository.DefaultPageSize, default);
         Assert.HasCount(1, page.Events);
         Assert.IsTrue(page.Events[0].Timestamp >= before);
         Assert.IsTrue(page.Events[0].Timestamp <= DateTime.UtcNow.AddSeconds(1));
@@ -55,7 +55,7 @@ public sealed class StrokeEventServiceTests
         await Task.Delay(10);
         await _service.AppendEventAsync("board-1", EventType.Add, third, default);
 
-        var page = await _service.GetEventsPageAsync("board-1", 1, StrokeEventService.DefaultPageSize, default);
+        var page = await _service.GetEventsPageAsync("board-1", 1, StrokeEventRepository.DefaultPageSize, default);
 
         Assert.AreEqual(3, page.TotalEvents);
         Assert.AreEqual(1, page.TotalPages);
@@ -75,7 +75,7 @@ public sealed class StrokeEventServiceTests
         Assert.IsTrue(firstAppend);
         Assert.IsFalse(secondAppend);
 
-        var page = await _service.GetEventsPageAsync("board-1", 1, StrokeEventService.DefaultPageSize, default);
+        var page = await _service.GetEventsPageAsync("board-1", 1, StrokeEventRepository.DefaultPageSize, default);
         Assert.AreEqual(1, page.TotalEvents);
     }
 
@@ -107,7 +107,7 @@ public sealed class StrokeEventServiceTests
     {
         var first = NewStroke("user-1");
         await _service.AppendEventAsync("board-1", EventType.Add, first, default);
-        var page = await _service.GetEventsPageAsync("board-1", 1, StrokeEventService.DefaultPageSize, default);
+        var page = await _service.GetEventsPageAsync("board-1", 1, StrokeEventRepository.DefaultPageSize, default);
         var boundary = page.Events[0].Timestamp;
 
         var since = await _service.GetEventsSinceAsync("board-1", boundary, default);
