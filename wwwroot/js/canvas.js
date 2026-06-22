@@ -100,11 +100,8 @@ class WhiteboardCanvas {
   // The proportions of the currently available drawing area, reported to the
   // server on join so the first (creator) client fixes the board's ratio.
   getViewportAspectRatio() {
-    const rect = this.canvas.parentNode.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0) {
-      return rect.width / rect.height;
-    }
-    return 1;
+    const { width, height } = this.#availableArea();
+    return width > 0 && height > 0 ? width / height : 1;
   }
 
   // While replaying, the ReplayEngine owns the canvas: suppress live rendering and
@@ -181,12 +178,11 @@ class WhiteboardCanvas {
   }
 
   #handleResize = () => {
-    // Fit the board into the available shell, centered, at the largest size its
-    // aspect ratio allows (letterbox/pillarbox margins are inert, non-drawable
-    // shell background). When the ratio is not yet known the board fills the shell.
-    const shellRect = this.canvas.parentNode.getBoundingClientRect();
-    const availWidth = Math.max(shellRect.width, 1);
-    const availHeight = Math.max(shellRect.height, 1);
+    // Fit the board into the available area at the largest size its aspect ratio
+    // allows, then size the shell to exactly the board so it wraps tightly: the
+    // surrounding tools flow up against it and no inert margin is ever shown.
+    // When the ratio is not yet known the board simply fills the available area.
+    const { width: availWidth, height: availHeight } = this.#availableArea();
     const ratio = this.aspectRatio ?? (availWidth / availHeight);
 
     let boardCssWidth = availWidth;
@@ -196,15 +192,18 @@ class WhiteboardCanvas {
       boardCssWidth = boardCssHeight * ratio;
     }
 
-    const offsetX = (availWidth - boardCssWidth) / 2;
-    const offsetY = (availHeight - boardCssHeight) / 2;
-
     this.devicePixelRatio = Math.max(window.devicePixelRatio || 1, 1);
     const pixelWidth = Math.max(Math.round(boardCssWidth * this.devicePixelRatio), 1);
     const pixelHeight = Math.max(Math.round(boardCssHeight * this.devicePixelRatio), 1);
 
-    this.#applyCanvasGeometry(this.canvas, offsetX, offsetY, boardCssWidth, boardCssHeight);
-    this.#applyCanvasGeometry(this.volatileCanvas, offsetX, offsetY, boardCssWidth, boardCssHeight);
+    // The board canvas is in-flow so the shell shrinks to it; the volatile
+    // overlay is absolutely positioned directly on top at the same size.
+    this.canvas.style.width = `${boardCssWidth}px`;
+    this.canvas.style.height = `${boardCssHeight}px`;
+    this.volatileCanvas.style.left = '0';
+    this.volatileCanvas.style.top = '0';
+    this.volatileCanvas.style.width = `${boardCssWidth}px`;
+    this.volatileCanvas.style.height = `${boardCssHeight}px`;
 
     this.canvas.width = pixelWidth;
     this.canvas.height = pixelHeight;
@@ -215,12 +214,16 @@ class WhiteboardCanvas {
     this.#renderVolatile();
   };
 
-  #applyCanvasGeometry(canvas, left, top, width, height) {
-    const style = canvas.style;
-    style.left = `${left}px`;
-    style.top = `${top}px`;
-    style.width = `${width}px`;
-    style.height = `${height}px`;
+  // The space the board may occupy: the shell's container width and the shell's
+  // CSS max-height (resolved to pixels). This is measured independently of the
+  // board's own size, which collapses to fit, so it stays a stable reference.
+  #availableArea() {
+    const shell = this.canvas.parentNode;
+    const container = shell.parentElement;
+    const width = Math.max((container?.clientWidth ?? shell.clientWidth) || 0, 1);
+    const maxHeightPx = parseFloat(getComputedStyle(shell).maxHeight);
+    const height = Math.max(Number.isFinite(maxHeightPx) ? maxHeightPx : window.innerHeight, 1);
+    return { width, height };
   }
 
   #boardWidthCss() {
