@@ -46,30 +46,29 @@
       <div id="replay-controls" class="replay-controls" hidden>
         <input type="range" id="replay-scrubber" min="0" max="1" step="0.001" value="0">
       </div>
-
-      <article class="users-panel" role="complementary">
-        <h2>Connected users</h2>
-        <ul id="users-list"></ul>
-        <p id="status-text" class="status-text" aria-live="polite"></p>
-      </article>
     </section>
   </main>
 
-  <nav class="toolbar">
-    <form id="board-form" class="toolbar-group" role="group">
-      <label>
-        Board
-        <input id="board-input" name="board" type="text" placeholder="board-name" autocomplete="off" spellcheck="false">
-      </label>
-      <button type="submit">Switch board</button>
-    </form>
+  <article class="users-panel" role="complementary">
+    <h2>Connected users</h2>
+    <ul id="users-list"></ul>
+    <p id="status-text" class="status-text" aria-live="polite"></p>
+  </article>
 
-    <form id="display-name-form" class="toolbar-group">
-      <label>
-        Display name
-        <input id="display-name-input" name="displayName" type="text" maxlength="30" autocomplete="nickname" placeholder="Anonymous">
-      </label>
+  <article>
+    <h2>Board</h2>
+    <form id="board-form" role="group">
+      <input id="board-input" name="board" type="text" placeholder="board-name" autocomplete="off" spellcheck="false">
+      <button type="submit">Switch</button>
     </form>
+  </article>
+
+  <article>
+    <h2>Display name</h2>
+    <form id="display-name-form">
+      <input id="display-name-input" name="displayName" type="text" maxlength="30" autocomplete="nickname" placeholder="Anonymous">
+    </form>
+  </article>
 
   </nav>
 
