@@ -234,11 +234,18 @@ async function startReplay() {
   // updates incrementally again, while keeping the replay controls visible so the
   // user can still scrub back or replay. The engine stays parked at the final
   // frame; playing or scrubbing again re-enters replay mode (see configureReplay).
-  engine.onEnd = () => {
+  engine.onEnd = async () => {
     state.replayPaused = true;
     state.replayEnded = true;
     btnReplayPlayPause.textContent = '▶ Play';
-    resyncLiveCanvas();
+    // Re-enable live rendering after resyncing, otherwise the canvas stays in
+    // replay mode (#render suppressed) and a later resize clears the board with
+    // nothing to repaint it. Mirrors exitReplay's hand-back to the live board.
+    try {
+      await resyncLiveCanvas();
+    } finally {
+      whiteboardCanvas.setReplaying(false);
+    }
   };
 
   state.replayEngine = engine;
