@@ -92,6 +92,12 @@ const connection = createWhiteboardConnection({
       renderUsers();
     }
 
+    // Live cursors are not shown while replaying history; the replay flow has
+    // cleared them and owns the board until it exits.
+    if (state.replayEngine) {
+      return;
+    }
+
     whiteboardCanvas.setRemoteCursor(userId, { x, y });
   },
   onStateChanged: message => updateStatus(message)
@@ -257,6 +263,7 @@ async function startReplay() {
   }
 
   refreshToolbar();
+  whiteboardCanvas.clearRemoteCursors();
   whiteboardCanvas.setEditable(false);
   engine.play();
 }

@@ -193,6 +193,16 @@ class WhiteboardCanvas {
     this.#renderVolatile();
   }
 
+  // Clears every remote cursor. The replay flow calls this on entry; live cursor
+  // updates repopulate the map once the board is live again.
+  clearRemoteCursors() {
+    if (this.remoteCursors.size === 0) {
+      return;
+    }
+    this.remoteCursors.clear();
+    this.#renderVolatile();
+  }
+
   #handleResize = () => {
     // Fit the board into the available area at the largest size its aspect ratio
     // allows, then size the shell to exactly the board so it wraps tightly: the
@@ -437,12 +447,8 @@ class WhiteboardCanvas {
       this.#drawVolatileStroke(this.currentStroke);
     }
 
-    // Remote cursors are live presence, shown only while the board is editable
-    // (hidden during replay).
-    if (this.editable) {
-      for (const [userId, cursor] of this.remoteCursors.entries()) {
-        this.#drawRemoteCursor(userId, cursor);
-      }
+    for (const [userId, cursor] of this.remoteCursors.entries()) {
+      this.#drawRemoteCursor(userId, cursor);
     }
   }
 
