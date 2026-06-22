@@ -55,8 +55,8 @@ class WhiteboardCanvas {
     this.activePointerId = null;
     this.currentColor = DEFAULT_COLOR;
     this.currentWidth = 4;
-    // Whether local drawing is accepted. Disabled during replay so the user
-    // views history without editing it; rendering is unaffected by this flag.
+    // Whether local drawing is accepted. The replay flow disables it so the user
+    // views history read-only; rendering stays independent of this flag.
     this.editable = true;
     // The board's fixed width-to-height ratio. Null means "not yet negotiated":
     // the canvas fills the available area (so a fresh creator board looks right
@@ -106,11 +106,11 @@ class WhiteboardCanvas {
     return width > 0 && height > 0 ? width / height : 1;
   }
 
-  // Enables or disables local editing. Drawing is blocked while not editable
-  // (#handlePointerDown checks this.editable) — used to lock the board during
-  // replay. Rendering is unaffected: it always reflects the board's owned state,
-  // which the ReplayEngine drives via commands (setSnapshot / commitStroke /
-  // removeStroke / setActiveStrokes).
+  // Enables or disables local editing — used to lock the board during replay.
+  // Drawing is accepted only while editable (#handlePointerDown checks
+  // this.editable). Rendering stays independent of this flag: it always reflects
+  // the board's owned state, which the ReplayEngine drives via commands
+  // (setSnapshot / commitStroke / removeStroke / setActiveStrokes).
   setEditable(value) {
     this.editable = value;
     this.#render();

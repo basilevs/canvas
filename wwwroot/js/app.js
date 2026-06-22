@@ -92,8 +92,8 @@ const connection = createWhiteboardConnection({
       renderUsers();
     }
 
-    // Live cursors are not shown while replaying history; the replay flow has
-    // cleared them and owns the board until it exits.
+    // While replaying, the replay flow owns the board and has cleared cursors, so
+    // skip live cursor updates until it exits.
     if (state.replayEngine) {
       return;
     }

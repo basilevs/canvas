@@ -2,9 +2,10 @@ const DEFAULT_COLOR = '#1e88e5';
 
 // Translates a board's append-only history into canvas commands, animating it
 // like a video: strokes play in chronological order, each draws point-by-point
-// using Point.TimeOffset, and long inactivity gaps are compressed. The engine
-// never touches a 2D context — the WhiteboardCanvas owns all rendering; the
-// engine only tells it which strokes are committed and which are mid-animation.
+// using Point.TimeOffset, and long inactivity gaps are compressed. The
+// WhiteboardCanvas owns all rendering and is the sole owner of the 2D context;
+// the engine drives it purely through commands, marking which strokes are
+// committed and which are mid-animation (and never draws directly).
 export class ReplayEngine {
   constructor(board, config = {}) {
     this.board = board;
@@ -80,8 +81,8 @@ export class ReplayEngine {
     const last = this.timeline[this.timeline.length - 1];
     this.totalDurationMs = last ? last.startMs + last.strokeDurationMs : 0;
 
-    // Entries ordered by when they become final, used to advance the baked base
-    // buffer. Ties keep timeline order so overlapping strokes layer consistently.
+    // Entries ordered by when they become final, used to advance the committed
+    // layer. Ties keep timeline order so overlapping strokes layer consistently.
     this.byCompletion = this.timeline
       .map((entry, index) => ({ entry, index }))
       .sort((a, b) => a.entry.completionMs - b.entry.completionMs || a.index - b.index)
