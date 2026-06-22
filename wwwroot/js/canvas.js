@@ -214,37 +214,15 @@ class WhiteboardCanvas {
     this.#renderVolatile();
   };
 
-  // The space the board may occupy: the layout's width, and the viewport height
-  // remaining below the board once the sibling controls that must stay visible
-  // (the toolbar and any shown replay controls) are reserved. Measuring the real
-  // control heights — rather than a fixed guess — keeps the board + controls
-  // within the viewport even when the toolbar wraps to several rows.
+  // The space the board may occupy: the shell's container width and the shell's
+  // CSS max-height (resolved to pixels). This is measured independently of the
+  // board's own size, which collapses to fit, so it stays a stable reference.
   #availableArea() {
     const shell = this.canvas.parentNode;
-    const layout = shell.parentElement;
-    const width = Math.max((layout?.clientWidth ?? shell.clientWidth) || 0, 1);
-
-    if (!layout) {
-      return { width, height: Math.max(window.innerHeight, 1) };
-    }
-
-    const shellTop = shell.getBoundingClientRect().top;
-    let controlsHeight = 0;
-    for (const child of layout.children) {
-      if (child === shell) {
-        continue;
-      }
-      const style = getComputedStyle(child);
-      if (style.display === 'none') {
-        continue;
-      }
-      controlsHeight += child.getBoundingClientRect().height
-        + (parseFloat(style.marginTop) || 0)
-        + (parseFloat(style.marginBottom) || 0);
-    }
-
-    const reservedBottom = 16;
-    const height = Math.max(window.innerHeight - shellTop - controlsHeight - reservedBottom, 1);
+    const container = shell.parentElement;
+    const width = Math.max((container?.clientWidth ?? shell.clientWidth) || 0, 1);
+    const maxHeightPx = parseFloat(getComputedStyle(shell).maxHeight);
+    const height = Math.max(Number.isFinite(maxHeightPx) ? maxHeightPx : window.innerHeight, 1);
     return { width, height };
   }
 
