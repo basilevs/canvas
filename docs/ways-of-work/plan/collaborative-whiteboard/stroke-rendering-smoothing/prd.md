@@ -2,7 +2,7 @@
 
 ## 1. Feature Name
 
-Stroke Rendering Smoothing — render the polyline that backs each stroke as a continuous, visually smooth curve (via interpolating splines or arcs) so that the angularity introduced by dropped pointer samples and point simplification disappears, without changing how strokes are captured, normalized, stored, or synchronized.
+Stroke Rendering Smoothing — present the polyline that backs each stroke as a continuous, visually smooth curve (via interpolating splines or arcs) so that the angularity introduced by dropped pointer samples and point simplification disappears. The smoothing is applied at render time by default, but capture-time approaches (smoothing or resampling points as they are captured, before simplification/sync) are explicitly evaluated as an alternative or complement — see §10.
 
 ## 2. Epic
 
@@ -10,7 +10,7 @@ Stroke Rendering Smoothing — render the polyline that backs each stroke as a c
 - **Parent Architecture / Feature plan:** [Collaborative Whiteboard feature plan](../../../../../plan/feature-collaborative-whiteboard-1.md)
 - **Sibling feature:** [Board Aspect Ratio Negotiation](../board-aspect-ratio-negotiation/prd.md) — established the normalized, width-relative coordinate space this feature renders.
 
-This feature is **render-only**. It builds on the MVP's freehand drawing and the shared rendering primitive `drawStrokePath` in [wwwroot/js/canvas.js](../../../../../wwwroot/js/canvas.js), which is the single function used by the live confirmed-stroke layer, the in-flight preview overlay, and the replay engine ([wwwroot/js/replay.js](../../../../../wwwroot/js/replay.js)). It does not touch the wire protocol, the persisted stroke model, the simplification step (`simplifyPointsVisvalingamWhyatt`), or coordinate normalization.
+This feature centers on the shared rendering primitive `drawStrokePath` in [wwwroot/js/canvas.js](../../../../../wwwroot/js/canvas.js) — the single function used by the live confirmed-stroke layer, the in-flight preview overlay, and the replay engine ([wwwroot/js/replay.js](../../../../../wwwroot/js/replay.js)) — because a render-time change there is the lowest-cost, lowest-risk path and benefits all surfaces at once. However, the scope is **not** restricted to rendering: capture-time changes (e.g. smoothing/resampling points in `#appendPoint` before they reach `simplifyPointsVisvalingamWhyatt` and the wire) are an evaluated alternative. §10 frames the placement decision and its trade-offs; render-time remains the recommended default unless a capture-time benefit (e.g. better fidelity feeding simplification) justifies the added cost of changing stored/synced data.
 
 ## 3. Goal
 
@@ -25,13 +25,18 @@ Because the renderer connects these sparse points with straight segments (`conte
 
 ### Solution
 
-Replace the straight chord-to-chord rendering inside the shared rendering primitive with a smooth interpolating curve fitted through the existing stored points. The captured/stored geometry is unchanged; only the path drawn between consecutive points becomes a curve (Bézier or circular arc) instead of a straight line. Because the change lives in `drawStrokePath`, all three render surfaces — confirmed history, live preview, and replay — benefit identically with no protocol or storage changes. The curve must continue to honor per-point, pressure-driven line width and the single-tap dot case.
+Present each stroke as a smooth curve (Bézier or circular arc) fitted through its points instead of straight chord-to-chord segments, continuing to honor per-point, pressure-driven line width and the single-tap dot case. Two placement strategies are in scope and compared in §10:
+
+1. **Render-time (recommended default):** fit the curve inside `drawStrokePath` from the existing stored points. Stored/synced geometry is unchanged, and all three render surfaces — confirmed history, live preview, and replay — benefit identically with no protocol or storage changes.
+2. **Capture-time (evaluated alternative/complement):** smooth or resample points as they are captured, so the improved polyline feeds simplification, persistence, sync, and replay alike. This can improve fidelity before lossy simplification but changes stored/synced data and must be weighed against that cost.
+
+The recommendation is to ship render-time first and treat capture-time as a deliberate, separately-justified follow-on rather than excluding it up front.
 
 ### Impact
 
 - **Higher perceived drawing quality:** curved gestures look smooth rather than faceted on every client, improving the core "feels good to draw" experience that the MVP exists to validate.
 - **Decouples visual quality from sample density:** aggressive simplification and unavoidable fast-motion sample loss no longer translate into visible angularity, so the existing storage/bandwidth savings can be kept (or even increased) without a quality penalty.
-- **Zero protocol/storage cost:** smoothing is a client-side render concern, so it ships without migrations, new fields, or added network traffic.
+- **Low-cost default path:** the recommended render-time approach is a client-side render concern, so it ships without migrations, new fields, or added network traffic; capture-time options are considered only where their benefit outweighs the cost of changing stored/synced data.
 
 ## 4. User Personas
 
@@ -64,7 +69,7 @@ Both are the single anonymous-collaborator actor from the MVP; this feature adds
 - **FR-5 — Normalized coordinates and scale unchanged.** Smoothing operates in the existing normalized (width-relative) coordinate space and is mapped to device pixels via the same `scale` argument; it adds no new coordinate space.
 - **FR-6 — Two-point and single-point cases preserved.** A stroke with two points renders as a straight segment; a single isolated point continues to render as a filled dot sized to the line at that point (the existing `drewSegment`/`lastVisible` behavior is retained).
 - **FR-7 — Replay time-clipping preserved.** The `upToMs` time cutoff used by replay continues to work: only points at or before the cutoff contribute to the curve, and the partially-revealed curve is smooth at each frame.
-- **FR-8 — Capture/storage/protocol untouched.** No change to point capture (`#appendPoint`/`#toCanvasPoint`), to `simplifyPointsVisvalingamWhyatt`, to the stroke/point DTOs, or to any hub message. Smoothing is purely a rendering transform applied at draw time.
+- **FR-8 — Placement decision is explicit and documented.** The chosen smoothing placement — render-time (inside `drawStrokePath`) versus capture-time (smoothing/resampling points in `#appendPoint` before `simplifyPointsVisvalingamWhyatt` and sync) — must be a deliberate, recorded decision per §10. For the **render-time** default, capture (`#appendPoint`/`#toCanvasPoint`), `simplifyPointsVisvalingamWhyatt`, the stroke/point DTOs, and hub messages remain untouched. If a **capture-time** approach is adopted, any change to stored/synced point data must be justified against §10's trade-offs, preserve backward compatibility of the existing DTOs, and keep simplification and sync working.
 - **FR-9 — Both casing conventions tolerated.** The smoothing code reads point coordinates and pressure tolerating both `x/y/pressure` and `X/Y/Pressure` shapes, matching `drawStrokePath`'s existing dual-casing handling.
 - **FR-10 — Tunable smoothing strength.** The algorithm exposes a small number of constants (e.g. spline tension and/or tessellation resolution) defined in one place so the smoothness-vs-fidelity and smoothness-vs-cost trade-offs can be adjusted without structural change.
 
@@ -76,7 +81,7 @@ Both are the single anonymous-collaborator actor from the MVP; this feature adds
 - **NFR-4 — Visual consistency across surfaces.** A given stroke renders identically (same curve) whether shown as live preview, confirmed history, snapshot, or replay frame at full time — moving between states must not visibly alter the stroke's shape.
 - **NFR-5 — Determinism.** Rendering is a pure function of the stored points and parameters: the same stroke always produces the same curve on every client and every redraw (no randomness, no dependence on capture timing).
 - **NFR-6 — Input parity.** Smoothing applies equally to mouse, trackpad, pen, and touch strokes; pressure-bearing and pressure-less (`null`) strokes both render correctly.
-- **NFR-7 — Maintainability.** The smoothing logic is isolated (a dedicated helper) with the algorithm and its parameters documented inline, so it can be tuned or swapped without touching capture, simplification, or sync code.
+- **NFR-7 — Maintainability.** The smoothing logic is isolated (a dedicated helper) with the algorithm and its parameters documented inline, so it can be tuned or swapped without touching unrelated capture, simplification, or sync code. If smoothing is placed at capture time, the helper must be reusable so render-time and capture-time share one implementation rather than diverging.
 
 ## 7. Acceptance Criteria
 
@@ -114,16 +119,15 @@ Both are the single anonymous-collaborator actor from the MVP; this feature adds
 
 ## 8. Out of Scope
 
-- Any change to point capture, the `simplifyPointsVisvalingamWhyatt` simplification step, coordinate normalization, the stroke/point data model, persistence, or any hub/wire message.
-- Smoothing or re-fitting the *captured* points (e.g. storing a smoothed polyline) — this feature smooths only at render time; stored geometry is untouched.
-- Predictive input / lag-hiding, point prediction, or any change to how fast-motion samples are *captured* (this feature compensates at render time, it does not try to recover dropped samples).
+- Predictive input / lag-hiding or point *prediction* (synthesising points the device never reported). Capture-time **smoothing/resampling** of points that were actually captured is in scope and evaluated in §10; *predicting* unseen points is not.
 - User-facing controls or per-board settings to toggle or tune smoothing (a single internal constant may exist, but there is no UI).
 - New brush styles, calligraphic/variable nib shapes, texture, or any rendering change beyond curve fitting and the existing pressure-width behavior.
-- Server-side or replay-engine rendering changes beyond their use of the shared `drawStrokePath` primitive.
+- Server-side rendering or any change to the replay engine beyond its use of the shared `drawStrokePath` primitive.
+- Replacing or re-tuning the `simplifyPointsVisvalingamWhyatt` thresholds themselves (a capture-time option may feed it cleaner input, but its scoring/threshold logic is not changed here).
 
 ## 9. Algorithm Options (for the smoothing curve)
 
-All options below are render-time only and apply to the polyline of stored points inside `drawStrokePath`. Because Canvas 2D cannot vary `lineWidth` mid-curve and today's renderer already strokes one segment per pair of points to follow pressure, the recommended pattern for every curve option is: **compute the curve, then tessellate it into short sub-segments and interpolate pressure/width across them** (same per-segment `stroke()` model as today, just with more, curved-following segments). This keeps FR-4 (pressure width) intact.
+These options define the *curve* used to smooth the polyline; they are independent of *where* the smoothing runs (§10 covers render-time vs capture-time placement). They are described against `drawStrokePath` because that is the render-time default, but the same curve math applies if smoothing is moved to capture time. Because Canvas 2D cannot vary `lineWidth` mid-curve and today's renderer already strokes one segment per pair of points to follow pressure, the recommended pattern for every curve option is: **compute the curve, then tessellate it into short sub-segments and interpolate pressure/width across them** (same per-segment `stroke()` model as today, just with more, curved-following segments). This keeps FR-4 (pressure width) intact.
 
 ### Option A — Quadratic Bézier through segment midpoints (a.k.a. "midpoint smoothing")
 
@@ -156,3 +160,25 @@ All options below are render-time only and apply to the polyline of stored point
 ### Recommendation
 
 Adopt **Option B (centripetal Catmull-Rom → cubic Bézier with tessellated, pressure-interpolated sub-segments)** as the default: it interpolates the stored points (FR-3), is robust against overshoot/cusps on sharp turns (NFR-3), and exposes a tension constant for tuning (FR-10). If implementation cost or risk must be minimized for a first pass, **Option A (quadratic-midpoint)** is the safe fallback, with the understanding that it gently rounds intentional sharp corners. Tessellation resolution should be a single tunable constant chosen to keep per-stroke cost within the current redraw budget (NFR-1).
+
+## 10. Smoothing Placement: Render-time vs Capture-time
+
+The curve algorithm (§9) can be applied at two points in the pipeline. The placement is a deliberate decision (FR-8); the trade-offs differ significantly.
+
+### Option R — Render-time (recommended default)
+
+- **How:** fit the smoothing curve inside `drawStrokePath` from the already-stored points, every time a stroke is drawn (confirmed history, preview, replay frame).
+- **Pros:** no change to captured/stored/synced data — zero migrations, no protocol or DTO changes, no risk to simplification or sync; all render surfaces benefit from one change; trivially reversible and retunable (it's pure presentation); deterministic and identical across clients regardless of capture timing.
+- **Cons:** smoothing runs on every redraw, so cost is paid repeatedly (must stay within NFR-1's budget — e.g. via cached tessellation); it cannot improve the *input* to `simplifyPointsVisvalingamWhyatt`, so simplification still scores the raw, faceted polyline.
+- **Best when:** you want the safe, low-risk win that ships independently — the recommended first step.
+
+### Option C — Capture-time (evaluated alternative / complement)
+
+- **How:** smooth or resample points as they are captured in `#appendPoint` (e.g. light EMA/median on incoming samples, or resampling to even arc-length spacing) **before** they reach `simplifyPointsVisvalingamWhyatt`, persistence, and the wire. The stored polyline itself becomes smoother.
+- **Pros:** smoothing is computed once per stroke, not per redraw; simplification operates on a cleaner signal, so it can drop more points for the same visual quality (potential storage/bandwidth win); every consumer (other clients, replay, future server-side tooling) sees the improved geometry without each needing render-time logic; pairs naturally with capture-time pressure de-noising (median + EMA discussed for the width channel).
+- **Cons:** changes stored/synced data — must preserve DTO backward compatibility and not regress existing boards; smoothing is baked in and harder to retune after the fact; capture-time filtering can add input latency or, if resampling, slightly move points away from where the user drew; risk of double-smoothing if a render-time pass is also kept.
+- **Best when:** you specifically want to improve the data feeding simplification/sync, or to de-noise pressure at the source, and can accept the cost of changing stored data.
+
+### Recommendation
+
+Ship **Option R (render-time)** first — it delivers the visible smoothing win with no data-format risk and benefits all surfaces from a single, reversible change. Treat **Option C (capture-time)** as a deliberate, separately-justified follow-on, warranted mainly if (a) we want simplification to exploit smoother input for larger storage/bandwidth savings, or (b) we adopt capture-time pressure de-noising and want one consistent smoothing stage. If both are ever combined, ensure the curve is applied **once** (capture-time geometry + render-time only for the dot/endpoint degenerate cases) to avoid double-smoothing. Whichever is chosen, the curve math (§9) and its tunable constants (FR-10) are shared so the two placements never diverge (NFR-7).
