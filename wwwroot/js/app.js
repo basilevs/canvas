@@ -252,7 +252,11 @@ async function exitReplay() {
   state.replayEnded = false;
   refreshToolbar();
 
-  await resyncLiveCanvas();
+  try {
+    await resyncLiveCanvas();
+  } finally {
+    whiteboardCanvas.setReplaying(false);
+  }
 }
 
 // Hands the canvas back to the live board: resync from the authoritative log,
@@ -261,10 +265,8 @@ async function exitReplay() {
 async function resyncLiveCanvas() {
   try {
     const history = await fetchAllHistory(state.boardName);
-    whiteboardCanvas.setReplaying(false);
     whiteboardCanvas.setSnapshot(foldEvents(history));
   } catch (error) {
-    whiteboardCanvas.setReplaying(false);
     updateStatus(error?.message ?? 'Failed to resync board');
   }
 }
