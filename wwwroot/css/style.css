@@ -31,13 +31,12 @@
 
 .canvas-shell {
   position: relative;
-  /* Wrap the board tightly: the shell shrinks to the fitted canvas (sized in JS)
-     so there is never any inert margin around it and the tools below flow up.
-     max-height bounds the board so the whole layout fits the viewport; the
-     shell is centered horizontally when the board is narrower than the row. */
+  /* Wrap the board tightly: the shell shrinks to the fitted canvas (sized in JS,
+     to the viewport space remaining after the toolbar) so there is never any
+     inert margin around it and the tools below flow up against it. The shell is
+     centered horizontally when the board is narrower than the row. */
   width: fit-content;
   max-width: 100%;
-  max-height: calc(100vh - 12rem);
   margin-inline: auto;
   /* No padding: the in-flow board canvas and the absolutely-positioned volatile
      overlay must share the same origin, otherwise the live preview is offset
