@@ -46,15 +46,6 @@ const whiteboardCanvas = createWhiteboardCanvas(canvasElement, {
     if (state.boardName) {
       connection.moveCursor(state.boardName, x, y);
     }
-  },
-  onResize: () => {
-    // The ReplayEngine owns the canvas during replay (the canvas suppresses its
-    // own render to avoid fighting it), so after a resize cleared the backing
-    // store, ask the engine to repaint the current frame at the new size. No-op
-    // when live, where the canvas's own #render already repainted.
-    if (state.replayEngine) {
-      state.replayEngine.renderAt(state.replayEngine.elapsedMs);
-    }
   }
 });
 
