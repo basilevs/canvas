@@ -218,8 +218,7 @@ async function startReplay() {
     return;
   }
 
-  const context = canvasElement.getContext('2d');
-  const engine = new ReplayEngine(context, {
+  const engine = new ReplayEngine(whiteboardCanvas, {
     gapThresholdMs: 3000,
     speed: Number(replaySpeedSelect.value)
   });

@@ -1,86 +1,61 @@
-// Unit tests for the client-side ReplayEngine timeline logic (TASK-034).
-//
-// There is no browser test runner in this repo, so these run on Node's built-in
-// test runner with the handful of browser globals the engine touches stubbed
-// out. Only pure timeline behaviour is exercised here (gap compression, total
-// duration, seek-to-midpoint state); point-by-point animation timing is covered
-// by the manual tests TASK-035..037.
+// Unit tests for the client-side ReplayEngine (TASK-034). The engine no longer
+// draws; it translates a board's history timeline into canvas commands
+// (setSnapshot / commitStroke / removeStroke / setActiveStrokes). These tests
+// drive a fake board that records those commands and assert the resulting
+// committed + in-progress (active) stroke sets. drawStrokePath rendering is
+// covered separately at the bottom.
 //
 // Run: node --test Tests/ReplayEngineTests.mjs
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-// The engine reads the canvas background colour via getComputedStyle when
-// clearing each frame; a constant stub is sufficient for headless testing.
-globalThis.getComputedStyle = () => ({ backgroundColor: '#ffffff' });
-
 const { ReplayEngine } = await import('../wwwroot/js/replay.js');
 const { drawStrokePath } = await import('../wwwroot/js/canvas.js');
 
-// Builds a recording 2D-context stub. Every stroke() is captured into the shared
-// `drawnStrokes` array tagged with its role, so a test can tell strokes painted
-// onto the visible canvas ('live') apart from those baked into the offscreen base
-// buffer ('base'). Both are real visible output (the base is blitted each frame).
-function buildContext(canvas, role, drawnStrokes) {
-  let current = null;
-  return {
-    canvas,
-    strokeStyle: '',
-    lineWidth: 0,
-    lineCap: '',
-    lineJoin: '',
-    fillStyle: '',
-    clearRect() {},
-    fillRect() {},
-    drawImage() {},
-    beginPath() {
-      current = { points: [], role };
-    },
-    moveTo(x, y) {
-      current.points.push([x, y]);
-    },
-    lineTo(x, y) {
-      current.points.push([x, y]);
-    },
-    arc(x, y) {
-      current.points.push([x, y]);
-    },
-    stroke() {
-      drawnStrokes.push(current);
-    },
-    fill() {
-      drawnStrokes.push(current);
-    }
-  };
+function strokeId(stroke) {
+  return stroke.id ?? stroke.Id;
 }
 
-function makeContext() {
-  const drawnStrokes = [];
-  const canvas = {
-    width: 100,
-    height: 100,
-    getBoundingClientRect: () => ({ width: 100 })
-  };
-  const context = buildContext(canvas, 'live', drawnStrokes);
-
-  // The engine lazily creates an offscreen base canvas via document.createElement.
-  // Hand back a canvas whose context records into the same array (tagged 'base').
-  globalThis.document = {
-    createElement() {
-      const baseCanvas = { width: 0, height: 0 };
-      baseCanvas.getContext = () => buildContext(baseCanvas, 'base', drawnStrokes);
-      return baseCanvas;
-    }
-  };
-
-  return { context, drawnStrokes };
-}
-
-function countByRole(drawnStrokes) {
+// A fake WhiteboardCanvas that records the commands the engine issues, exposing
+// the committed set, the current in-progress (active) set, and call logs so a
+// test can assert that completed strokes are committed exactly once.
+function makeBoard() {
+  const committed = new Map();
+  let active = [];
   return {
-    base: drawnStrokes.filter(entry => entry.role === 'base').length,
-    live: drawnStrokes.filter(entry => entry.role === 'live').length
+    commits: [],
+    removes: [],
+    snapshots: [],
+    setSnapshot(strokes) {
+      committed.clear();
+      for (const stroke of strokes) {
+        committed.set(strokeId(stroke), stroke);
+      }
+      active = [];
+      this.snapshots.push([...committed.keys()]);
+    },
+    commitStroke(stroke) {
+      committed.set(strokeId(stroke), stroke);
+      this.commits.push(strokeId(stroke));
+    },
+    removeStroke(id) {
+      committed.delete(id);
+      this.removes.push(id);
+    },
+    setActiveStrokes(strokes) {
+      active = strokes.slice();
+    },
+    committedIds() {
+      return [...committed.keys()];
+    },
+    activeIds() {
+      return active.map(strokeId);
+    },
+    activePoints(id) {
+      const found = active.find(stroke => strokeId(stroke) === id);
+      return found ? found.points : null;
+    }
   };
 }
 
@@ -101,9 +76,9 @@ function addEvent(id, timestamp, lastOffsetMs) {
 }
 
 function newEngine() {
-  const { context, drawnStrokes } = makeContext();
-  const engine = new ReplayEngine(context, { gapThresholdMs: 3000, speed: 1 });
-  return { engine, drawnStrokes };
+  const board = makeBoard();
+  const engine = new ReplayEngine(board, { gapThresholdMs: 3000, speed: 1 });
+  return { engine, board };
 }
 
 test('computeTimeline compresses inactivity gaps longer than the threshold', () => {
@@ -147,8 +122,8 @@ test('totalDurationMs accounts for the final stroke duration', () => {
   assert.equal(engine.totalDurationMs, 4000);
 });
 
-test('seek to the midpoint renders only the strokes visible at that time', () => {
-  const { engine, drawnStrokes } = newEngine();
+test('seek to the midpoint commits past strokes and shows no in-progress stroke', () => {
+  const { engine, board } = newEngine();
   const events = [
     addEvent('s1', '2025-01-01T00:00:00.000Z', 1000),
     addEvent('s2', '2025-01-01T00:01:40.000Z', 1000)
@@ -160,16 +135,18 @@ test('seek to the midpoint renders only the strokes visible at that time', () =>
     lastProgress = progress;
   };
 
-  // totalDurationMs = 4000, so 0.5 -> elapsedMs 2000, before s2 begins at 3000.
+  // totalDurationMs = 4000, so 0.5 -> elapsedMs 2000: after s1 finishes (1000)
+  // and before s2 begins (3000).
   engine.seek(0.5);
 
-  assert.equal(drawnStrokes.length, 1, 'only the first stroke should be visible at the midpoint');
+  assert.deepEqual(board.committedIds(), ['s1'], 'the finished stroke is committed');
+  assert.deepEqual(board.activeIds(), [], 'nothing is mid-animation at the midpoint');
   assert.equal(lastProgress.ratio, 0.5);
   assert.equal(lastProgress.timestamp, '2025-01-01T00:00:00.000Z');
 });
 
-test('a Remove event hides a previously added stroke during replay', () => {
-  const { engine, drawnStrokes } = newEngine();
+test('a Remove hides a stroke that is undone before its draw finishes', () => {
+  const { engine, board } = newEngine();
   const events = [
     addEvent('s1', '2025-01-01T00:00:00.000Z', 1000),
     { type: 'Remove', timestamp: '2025-01-01T00:00:00.500Z', stroke: { id: 's1', points: [] } }
@@ -178,13 +155,13 @@ test('a Remove event hides a previously added stroke during replay', () => {
 
   engine.seek(1);
 
-  assert.equal(drawnStrokes.length, 0, 'removed stroke must not be drawn');
+  assert.deepEqual(board.committedIds(), [], 'removed stroke is not committed');
+  assert.deepEqual(board.activeIds(), [], 'and is not left in the in-progress tail');
 });
 
-test('completed strokes are baked once and not redrawn on every frame', () => {
-  const { engine, drawnStrokes } = newEngine();
-  // s2 has three points so it draws a partial segment while in progress (a
-  // two-point stroke renders nothing until its final point's time is reached).
+test('completed strokes are committed once; in-progress strokes go to the active set', () => {
+  const { engine, board } = newEngine();
+  // s2 has three points so it has a visible prefix while in progress.
   const s2 = {
     type: 'Add',
     timestamp: '2025-01-01T00:00:00.200Z',
@@ -206,67 +183,67 @@ test('completed strokes are baked once and not redrawn on every frame', () => {
   ];
   engine.computeTimeline(events);
 
-  // Frame 1: s1 (0..100) is complete, s2 has not started. s1 is baked into base.
+  // Frame 0: replay starts — nothing has finished yet, s1 begins animating. The
+  // first frame rebuilds the committed set (entering replay), so commitStroke is
+  // exercised only once playback advances past a completion.
+  engine.renderAt(0);
+  assert.deepEqual(board.committedIds(), [], 'nothing committed at the start');
+  assert.deepEqual(board.activeIds(), ['s1'], 's1 is animating from the start');
+
+  // Frame 1: s1 (0..100) is now complete and committed; s2 has not started.
   engine.renderAt(150);
-  const frame1 = countByRole(drawnStrokes);
-  assert.equal(frame1.base, 1, 's1 should be baked into the base buffer once');
-  assert.equal(frame1.live, 0, 'nothing is in progress at t=150');
+  assert.deepEqual(board.committedIds(), ['s1'], 's1 committed');
+  assert.deepEqual(board.activeIds(), [], 'nothing in progress at t=150');
+  assert.deepEqual(board.commits, ['s1']);
 
-  // Frame 2: s2 is now in progress (one segment drawn). s1 is already baked, so
-  // it must NOT be redrawn -- only the in-progress s2 is painted live.
-  drawnStrokes.length = 0;
+  // Frame 2: s2 is now in progress; s1 must NOT be committed again.
   engine.renderAt(250);
-  const frame2 = countByRole(drawnStrokes);
-  assert.equal(frame2.base, 0, 's1 must not be re-baked once complete');
-  assert.equal(frame2.live, 1, 'only the in-progress stroke is redrawn');
+  assert.deepEqual(board.commits, ['s1'], 's1 is committed exactly once');
+  assert.deepEqual(board.activeIds(), ['s2'], 'only the in-progress stroke is active');
+  assert.equal(board.activePoints('s2').length, 2, 's2 prefix is its first two points at +50ms');
 
-  // Frame 3: still mid-s2. The completed history is never redrawn again.
-  drawnStrokes.length = 0;
+  // Frame 3: still mid-s2. No new commits; history is not re-emitted.
   engine.renderAt(260);
-  const frame3 = countByRole(drawnStrokes);
-  assert.equal(frame3.base, 0, 'completed history is not redrawn frame-to-frame');
-  assert.equal(frame3.live, 1, 'only the in-progress stroke is redrawn');
+  assert.deepEqual(board.commits, ['s1']);
+  assert.deepEqual(board.activeIds(), ['s2']);
 });
 
-test('seeking backwards rebuilds the base buffer from scratch', () => {
-  const { engine, drawnStrokes } = newEngine();
+test('seeking backwards rebuilds the committed set via a snapshot', () => {
+  const { engine, board } = newEngine();
   const events = [
     addEvent('s1', '2025-01-01T00:00:00.000Z', 100),
     addEvent('s2', '2025-01-01T00:00:00.200Z', 100)
   ];
   engine.computeTimeline(events);
 
-  // Play forward past both strokes: both end up baked into the base buffer.
+  // Play forward past both strokes: both committed.
   engine.renderAt(350);
-  drawnStrokes.length = 0;
+  assert.deepEqual(board.committedIds(), ['s1', 's2']);
 
-  // Seek back before s2 started: the forward-only base must be rebuilt to contain
-  // only s1, so the now-future s2 is not shown.
+  // Seek back before s2 started: the committed set is rebuilt to only s1.
   engine.renderAt(150);
-  const frame = countByRole(drawnStrokes);
-  assert.equal(frame.base, 1, 'base buffer is rebuilt with only the completed s1');
-  assert.equal(frame.live, 0, 's2 is in the future after seeking back to t=150');
+  assert.deepEqual(board.committedIds(), ['s1'], 's2 is in the future after seeking back');
+  assert.deepEqual(board.activeIds(), []);
 });
 
-test('a Remove forces a base rebuild that drops the removed stroke', () => {
-  const { engine, drawnStrokes } = newEngine();
+test('a Remove rebuilds the committed set, dropping the removed stroke', () => {
+  const { engine, board } = newEngine();
   const events = [
     addEvent('s1', '2025-01-01T00:00:00.000Z', 100),
     addEvent('s2', '2025-01-01T00:00:00.200Z', 100),
-    // s1 is undone after both strokes have finished drawing (at ~400ms).
+    // s1 is undone after both strokes have finished drawing.
     { type: 'Remove', timestamp: '2025-01-01T00:00:00.400Z', stroke: { id: 's1', points: [] } }
   ];
   engine.computeTimeline(events);
 
-  // Before the Remove: both strokes are baked.
+  // Before the Remove: both strokes committed.
   engine.renderAt(350);
+  assert.deepEqual(board.committedIds(), ['s1', 's2']);
 
-  // After the Remove completes: the base must be rebuilt so only s2 remains.
-  drawnStrokes.length = 0;
+  // After the Remove takes effect: rebuilt to s2 only.
   engine.renderAt(450);
-  const frame = countByRole(drawnStrokes);
-  assert.equal(frame.live, 0, 'no stroke is in progress at t=450');
-  assert.equal(frame.base, 1, 'base is rebuilt with s2 only after s1 is removed');
+  assert.deepEqual(board.committedIds(), ['s2']);
+  assert.deepEqual(board.activeIds(), []);
 });
 
 // Regression: a single click/tap produces a one-point stroke (the pointerup at
