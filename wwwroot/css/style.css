@@ -39,6 +39,10 @@
   max-width: 100%;
   max-height: calc(100vh - 12rem);
   margin-inline: auto;
+  /* No padding: the in-flow board canvas and the absolutely-positioned volatile
+     overlay must share the same origin, otherwise the live preview is offset
+     from the committed strokes by the article's default padding. */
+  padding: 0;
 }
 
 #whiteboard-canvas {
