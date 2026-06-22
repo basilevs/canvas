@@ -461,14 +461,11 @@ class WhiteboardCanvas {
       return;
     }
 
-    context.save();
-    context.globalAlpha = 0.85;
     drawStrokePath(context, stroke.points ?? stroke.Points ?? [], {
       scale: this.canvas.width,
       color: stroke.color ?? stroke.Color ?? DEFAULT_COLOR,
       baseWidth: stroke.width ?? stroke.Width ?? 4
     });
-    context.restore();
   }
 
   #drawRemoteCursor(userId, cursor) {
