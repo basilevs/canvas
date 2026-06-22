@@ -310,7 +310,7 @@ export class ReplayEngine {
     }
 
     drawStrokePath(context, points, {
-      dpr: this.devicePixelRatio(),
+      scale: this.canvas.width,
       color: stroke.color ?? stroke.Color ?? DEFAULT_COLOR,
       baseWidth: stroke.width ?? stroke.Width ?? 4,
       upToMs
@@ -329,15 +329,6 @@ export class ReplayEngine {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
-  }
-
-  devicePixelRatio() {
-    const rect = this.canvas.getBoundingClientRect();
-    if (rect.width > 0) {
-      return this.canvas.width / rect.width;
-    }
-
-    return Math.max(window.devicePixelRatio || 1, 1);
   }
 }
 

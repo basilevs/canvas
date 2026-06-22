@@ -7,6 +7,9 @@ class WhiteboardConnection {
     this.handlers = handlers;
     this.boardName = null;
     this.sinceTimestamp = new Date(0).toISOString();
+    // The board ratio proposed on the first join and replayed verbatim on every
+    // reconnect (the server ignores it once the board exists).
+    this.aspectRatio = 1;
     this.pendingStrokes = new Map();
     this.pendingCursorMove = null;
     this.cursorMoveDrainPromise = null;
@@ -78,13 +81,17 @@ class WhiteboardConnection {
     this.handlers.onStateChanged?.('Connected');
   }
 
-  async joinBoard(boardName, sinceTimestamp) {
+  async joinBoard(boardName, sinceTimestamp, aspectRatio) {
     this.boardName = boardName;
     if (sinceTimestamp) {
       this.trackTimestamp(sinceTimestamp);
     }
 
-    const joined = await this.connection.invoke('JoinBoard', boardName, this.sinceTimestamp);
+    if (Number.isFinite(aspectRatio) && aspectRatio > 0) {
+      this.aspectRatio = aspectRatio;
+    }
+
+    const joined = await this.connection.invoke('JoinBoard', boardName, this.sinceTimestamp, this.aspectRatio);
     this.handlers.onJoined?.(joined);
     return joined;
   }

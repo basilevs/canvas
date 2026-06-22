@@ -52,6 +52,12 @@ const whiteboardCanvas = createWhiteboardCanvas(canvasElement, {
 const connection = createWhiteboardConnection({
   onJoined: profile => {
     state.currentUserId = profile.userId ?? profile.UserId;
+    // Reshape the canvas to the board's established aspect ratio (the creator's
+    // for late joiners, the caller's own for a brand-new board).
+    const aspectRatio = profile.aspectRatio ?? profile.AspectRatio;
+    if (aspectRatio) {
+      whiteboardCanvas.setAspectRatio(aspectRatio);
+    }
     // Overwrite the input with the caller's last known name on every join,
     // including reconnects. Today the name is shared across all boards; once
     // moderation lands it becomes board-local and a moderator can override it.
@@ -323,7 +329,9 @@ async function startBoard() {
     const sinceTimestamp = lastEventTimestamp(history);
 
     await connection.start();
-    await connection.joinBoard(state.boardName, sinceTimestamp);
+    // Report this client's current viewport proportions; the server fixes the
+    // board's ratio from the first (creator) join and ignores it thereafter.
+    await connection.joinBoard(state.boardName, sinceTimestamp, whiteboardCanvas.getViewportAspectRatio());
   } catch (error) {
     updateStatus(error?.message ?? 'Failed to connect');
   }

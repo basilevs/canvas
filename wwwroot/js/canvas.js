@@ -56,6 +56,10 @@ class WhiteboardCanvas {
     this.currentColor = DEFAULT_COLOR;
     this.currentWidth = 4;
     this.replaying = false;
+    // The board's fixed width-to-height ratio. Null means "not yet negotiated":
+    // the canvas fills the available area (so a fresh creator board looks right
+    // immediately); setAspectRatio locks it to the board's established value.
+    this.aspectRatio = null;
     this.devicePixelRatio = Math.max(window.devicePixelRatio || 1, 1);
 
     // Volatile visuals (remote cursors + in-flight local stroke preview) are
@@ -67,10 +71,6 @@ class WhiteboardCanvas {
     this.volatileCanvas = document.createElement('canvas');
     const volatileStyle = this.volatileCanvas.style;
     volatileStyle.position = 'absolute';
-    volatileStyle.top = '0';
-    volatileStyle.left = '0';
-    volatileStyle.width = '100%';
-    volatileStyle.height = '100%';
     volatileStyle.zIndex = '1';
     volatileStyle.pointerEvents = 'none';
     this.canvas.parentNode.appendChild(this.volatileCanvas);
@@ -87,6 +87,24 @@ class WhiteboardCanvas {
   setDrawingStyle(color, width) {
     this.currentColor = color || DEFAULT_COLOR;
     this.currentWidth = Number.isFinite(width) ? width : 4;
+  }
+
+  // Locks the board to its negotiated aspect ratio (width ÷ height) and re-fits
+  // the canvas. A non-positive or non-finite value clears it back to fill mode.
+  setAspectRatio(ratio) {
+    const value = Number(ratio);
+    this.aspectRatio = Number.isFinite(value) && value > 0 ? value : null;
+    this.#handleResize();
+  }
+
+  // The proportions of the currently available drawing area, reported to the
+  // server on join so the first (creator) client fixes the board's ratio.
+  getViewportAspectRatio() {
+    const rect = this.canvas.parentNode.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      return rect.width / rect.height;
+    }
+    return 1;
   }
 
   // While replaying, the ReplayEngine owns the canvas: suppress live rendering and
@@ -163,20 +181,51 @@ class WhiteboardCanvas {
   }
 
   #handleResize = () => {
-    const rect = this.canvas.getBoundingClientRect();
-    const width = Math.max(Math.floor(rect.width * this.devicePixelRatio), 1);
-    const height = Math.max(Math.floor(rect.height * this.devicePixelRatio), 1);
+    // Fit the board into the available shell, centered, at the largest size its
+    // aspect ratio allows (letterbox/pillarbox margins are inert, non-drawable
+    // shell background). When the ratio is not yet known the board fills the shell.
+    const shellRect = this.canvas.parentNode.getBoundingClientRect();
+    const availWidth = Math.max(shellRect.width, 1);
+    const availHeight = Math.max(shellRect.height, 1);
+    const ratio = this.aspectRatio ?? (availWidth / availHeight);
 
-    if (this.canvas.width !== width || this.canvas.height !== height ||
-        this.volatileCanvas.width !== width || this.volatileCanvas.height !== height) {
-      this.canvas.width = width;
-      this.canvas.height = height;
-      this.volatileCanvas.width = width;
-      this.volatileCanvas.height = height;
-      this.#render();
-      this.#renderVolatile();
+    let boardCssWidth = availWidth;
+    let boardCssHeight = boardCssWidth / ratio;
+    if (boardCssHeight > availHeight) {
+      boardCssHeight = availHeight;
+      boardCssWidth = boardCssHeight * ratio;
     }
+
+    const offsetX = (availWidth - boardCssWidth) / 2;
+    const offsetY = (availHeight - boardCssHeight) / 2;
+
+    this.devicePixelRatio = Math.max(window.devicePixelRatio || 1, 1);
+    const pixelWidth = Math.max(Math.round(boardCssWidth * this.devicePixelRatio), 1);
+    const pixelHeight = Math.max(Math.round(boardCssHeight * this.devicePixelRatio), 1);
+
+    this.#applyCanvasGeometry(this.canvas, offsetX, offsetY, boardCssWidth, boardCssHeight);
+    this.#applyCanvasGeometry(this.volatileCanvas, offsetX, offsetY, boardCssWidth, boardCssHeight);
+
+    this.canvas.width = pixelWidth;
+    this.canvas.height = pixelHeight;
+    this.volatileCanvas.width = pixelWidth;
+    this.volatileCanvas.height = pixelHeight;
+
+    this.#render();
+    this.#renderVolatile();
   };
+
+  #applyCanvasGeometry(canvas, left, top, width, height) {
+    const style = canvas.style;
+    style.left = `${left}px`;
+    style.top = `${top}px`;
+    style.width = `${width}px`;
+    style.height = `${height}px`;
+  }
+
+  #boardWidthCss() {
+    return this.canvas.getBoundingClientRect().width || 1;
+  }
 
   #handlePointerDown = (event) => {
     if (event.button !== 0 || this.replaying) {
@@ -203,7 +252,9 @@ class WhiteboardCanvas {
       id: generateStrokeId(),
       points: [],
       color: this.currentColor,
-      width: this.currentWidth,
+      // Width is stored as a fraction of board width so it scales with the board
+      // on every screen, matching the normalized point coordinates.
+      width: this.currentWidth / this.#boardWidthCss(),
       startTime: performance.now(),
       pointerType: event.pointerType,
       startPressure: event.pressure
@@ -246,7 +297,7 @@ class WhiteboardCanvas {
     this.activePointerId = null;
     completedStroke.points = simplifyPointsVisvalingamWhyatt(
       completedStroke.points,
-      SIMPLIFY_THRESHOLD_CSS_PX,
+      SIMPLIFY_THRESHOLD_CSS_PX / this.#boardWidthCss(),
       completedStroke.width ?? completedStroke.Width ?? 4
     );
     this.previewStrokes.set(getStrokeId(completedStroke), completedStroke);
@@ -324,10 +375,14 @@ class WhiteboardCanvas {
   }
 
   #toCanvasPoint(event) {
+    // Coordinates are normalized to board width: x in 0..1 (left..right), y in
+    // the same width-based unit (0..1/aspectRatio, top..bottom). Dividing both by
+    // width keeps the unit square so the drawing never distorts across screens.
     const rect = this.canvas.getBoundingClientRect();
+    const width = rect.width || 1;
     return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top
+      x: (event.clientX - rect.left) / width,
+      y: (event.clientY - rect.top) / width
     };
   }
 
@@ -386,7 +441,7 @@ class WhiteboardCanvas {
     }
 
     drawStrokePath(this.context, points, {
-      dpr: this.devicePixelRatio,
+      scale: this.canvas.width,
       color: stroke.color ?? stroke.Color ?? DEFAULT_COLOR,
       baseWidth: stroke.width ?? stroke.Width ?? 4
     });
@@ -401,7 +456,7 @@ class WhiteboardCanvas {
     context.save();
     context.globalAlpha = 0.85;
     drawStrokePath(context, stroke.points ?? stroke.Points ?? [], {
-      dpr: this.devicePixelRatio,
+      scale: this.canvas.width,
       color: stroke.color ?? stroke.Color ?? DEFAULT_COLOR,
       baseWidth: stroke.width ?? stroke.Width ?? 4
     });
@@ -411,15 +466,17 @@ class WhiteboardCanvas {
   #drawRemoteCursor(userId, cursor) {
     const context = this.volatileContext;
     const color = colorFromUserId(userId);
-    const x = cursor.x;
-    const y = cursor.y;
+    // Cursors arrive in normalized width-relative coordinates; map them to device
+    // pixels with the same board-width scale used for strokes.
+    const x = cursor.x * this.canvas.width;
+    const y = cursor.y * this.canvas.width;
 
     context.save();
     context.fillStyle = color;
     context.strokeStyle = '#ffffff';
     context.lineWidth = 2 * this.devicePixelRatio;
     context.beginPath();
-    context.arc(x * this.devicePixelRatio, y * this.devicePixelRatio, 5 * this.devicePixelRatio, 0, Math.PI * 2);
+    context.arc(x, y, 5 * this.devicePixelRatio, 0, Math.PI * 2);
     context.fill();
     context.stroke();
     context.restore();
@@ -591,7 +648,9 @@ export function colorFromUserId(userId) {
 // as full pressure so non-pressure input keeps the configured width. Canvas 2D
 // cannot vary lineWidth within a single path, hence one stroke() per segment.
 // upToMs limits drawing to points at or before a given time offset (replay).
-export function drawStrokePath(context, points, { dpr, color, baseWidth, upToMs = Infinity }) {
+// Coordinates and baseWidth are normalized (fractions of board width); `scale`
+// is the board's device-pixel width, mapping them to physical pixels.
+export function drawStrokePath(context, points, { scale, color, baseWidth, upToMs = Infinity }) {
   if (points.length === 0) {
     return;
   }
@@ -615,14 +674,14 @@ export function drawStrokePath(context, points, { dpr, color, baseWidth, upToMs 
     }
 
     const current = {
-      x: (point.x ?? point.X) * dpr,
-      y: (point.y ?? point.Y) * dpr,
+      x: (point.x ?? point.X) * scale,
+      y: (point.y ?? point.Y) * scale,
       factor: pressureFactor(point)
     };
 
     if (previous) {
       context.beginPath();
-      context.lineWidth = baseWidth * ((previous.factor + current.factor) / 2) * dpr;
+      context.lineWidth = baseWidth * ((previous.factor + current.factor) / 2) * scale;
       context.moveTo(previous.x, previous.y);
       context.lineTo(current.x, current.y);
       context.stroke();
@@ -637,7 +696,7 @@ export function drawStrokePath(context, points, { dpr, color, baseWidth, upToMs 
   // isolated point with no segment to stroke, so render it as a filled dot the
   // size of the line at that point. Without this, single taps leave no mark.
   if (!drewSegment && lastVisible) {
-    const radius = Math.max(baseWidth * lastVisible.factor * dpr, dpr) / 2;
+    const radius = Math.max(baseWidth * lastVisible.factor * scale, 1) / 2;
     context.beginPath();
     context.fillStyle = color;
     context.arc(lastVisible.x, lastVisible.y, radius, 0, Math.PI * 2);

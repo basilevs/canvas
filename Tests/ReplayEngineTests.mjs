@@ -292,7 +292,7 @@ function recordingContext() {
 
 test('a single-point stroke renders as a filled dot', () => {
   const context = recordingContext();
-  drawStrokePath(context, [{ x: 5, y: 5, timeOffset: 0 }], { dpr: 1, color: '#000', baseWidth: 4 });
+  drawStrokePath(context, [{ x: 5, y: 5, timeOffset: 0 }], { scale: 1, color: '#000', baseWidth: 4 });
 
   assert.ok(context.calls.includes('fill'), 'an isolated point must be filled as a dot');
   assert.ok(!context.calls.includes('stroke'), 'a single point has no segment to stroke');
@@ -303,7 +303,7 @@ test('a multi-point stroke strokes segments and draws no dot', () => {
   drawStrokePath(
     context,
     [{ x: 0, y: 0, timeOffset: 0 }, { x: 10, y: 10, timeOffset: 10 }],
-    { dpr: 1, color: '#000', baseWidth: 4 }
+    { scale: 1, color: '#000', baseWidth: 4 }
   );
 
   assert.ok(context.calls.includes('stroke'), 'consecutive points are stroked as a segment');

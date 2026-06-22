@@ -31,18 +31,24 @@
 
 .canvas-shell {
   position: relative;
-  min-height: 32rem;
+  height: calc(100vh - 12rem);
+  min-height: 20rem;
   overflow: hidden;
+  /* Inert letterbox/pillarbox margins around a board that does not fill the
+     shell. Pointer events there land on the shell, not the canvas, so they
+     never produce strokes. */
+  background: var(--pico-secondary-background, #e9ecef);
 }
 
 #whiteboard-canvas {
   display: block;
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
   touch-action: none;
   cursor: crosshair;
+  /* The drawable board surface; JS sizes and centers it to the board's aspect
+     ratio. A subtle outline distinguishes it from the inert shell margins. */
+  background: #ffffff;
+  box-shadow: 0 0 0 1px var(--pico-muted-border-color, #ccced3);
 }
 
 .user-swatch {
