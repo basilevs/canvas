@@ -26,7 +26,6 @@
   /* display: grid; */
   grid-template-columns: minmax(0, 1fr) 18rem;
   gap: 1rem;
-  min-height: calc(100vh - 10rem);
 }
 
 .canvas-shell {
