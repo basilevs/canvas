@@ -50,6 +50,13 @@ const whiteboardCanvas = createWhiteboardCanvas(canvasElement, {
 });
 
 const connection = createWhiteboardConnection({
+  onJoined: profile => {
+    state.currentUserId = profile.userId ?? profile.UserId;
+    // Overwrite the input with the caller's last known name on every join,
+    // including reconnects. Today the name is shared across all boards; once
+    // moderation lands it becomes board-local and a moderator can override it.
+    displayNameInput.value = profile.displayName ?? profile.DisplayName ?? '';
+  },
   onConnectedUsers: users => {
     syncUsers(users);
     updateStatus(`Joined ${state.boardName}`);
@@ -372,7 +379,6 @@ async function commitDisplayName() {
 
   try {
     await connection.setDisplayName(displayName);
-    state.knownNames.set(state.currentUserId ?? 'self', displayName);
   } catch (error) {
     updateStatus(error?.message ?? 'Failed to update display name');
   }

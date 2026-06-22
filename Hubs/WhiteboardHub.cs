@@ -29,7 +29,7 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
         _logger = logger;
     }
 
-    public async Task JoinBoard(string boardName, DateTime sinceTimestamp)
+    public async Task<JoinBoardResponse> JoinBoard(string boardName, DateTime sinceTimestamp)
     {
         var cancellationToken = Context.ConnectionAborted;
         var userId = GetUserId();
@@ -77,6 +77,8 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
         }
 
         await Clients.OthersInGroup(boardId).UserJoined(userId, profile.DisplayName);
+
+        return new JoinBoardResponse(userId, profile.DisplayName);
     }
 
     public async Task LeaveBoard(string boardName)

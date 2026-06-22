@@ -84,7 +84,9 @@ class WhiteboardConnection {
       this.trackTimestamp(sinceTimestamp);
     }
 
-    await this.connection.invoke('JoinBoard', boardName, this.sinceTimestamp);
+    const joined = await this.connection.invoke('JoinBoard', boardName, this.sinceTimestamp);
+    this.handlers.onJoined?.(joined);
+    return joined;
   }
 
   trackTimestamp(timestamp) {

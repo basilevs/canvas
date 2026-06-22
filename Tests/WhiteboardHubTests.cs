@@ -39,6 +39,19 @@ public sealed class WhiteboardHubTests
     }
 
     [TestMethod]
+    public async Task JoinBoard_returns_caller_identity_and_display_name()
+    {
+        var hub = CreateHub(out _, out _, out var boardRepository, out var userProfileRepository, out _, out _, out _);
+        await boardRepository.CreateBoardAsync("demo-board", default);
+        await userProfileRepository.SetDisplayNameAsync("user-1", "Alice", default);
+
+        var response = await hub.JoinBoard("demo-board", DateTime.UnixEpoch);
+
+        Assert.AreEqual("user-1", response.UserId);
+        Assert.AreEqual("Alice", response.DisplayName);
+    }
+
+    [TestMethod]
     public async Task SendStroke_logs_once_and_broadcasts_once()
     {
         var hub = CreateHub(out _, out var group, out var boardRepository, out _, out _, out _, out var strokeEvents);
