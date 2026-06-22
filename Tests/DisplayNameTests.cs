@@ -12,7 +12,7 @@ public sealed class DisplayNameTests
     public async Task SetDisplayName_persists_and_broadcasts()
     {
         var hub = CreateHub(out _, out var group, out var boardRepository, out var userProfileRepository, out _, out _);
-        await boardRepository.CreateBoardAsync("demo-board", default);
+        await boardRepository.CreateBoardAsync("demo-board", 1.0, default);
 
         await hub.JoinBoard("demo-board", DateTime.UnixEpoch);
         await hub.SetDisplayName("New Name");
@@ -27,7 +27,7 @@ public sealed class DisplayNameTests
     public async Task SetDisplayName_rejects_empty_or_long_names()
     {
         var hub = CreateHub(out _, out _, out var boardRepository, out _, out _, out _);
-        await boardRepository.CreateBoardAsync("demo-board", default);
+        await boardRepository.CreateBoardAsync("demo-board", 1.0, default);
         await hub.JoinBoard("demo-board", DateTime.UnixEpoch);
 
         await AssertHubExceptionAsync(() => hub.SetDisplayName(""));

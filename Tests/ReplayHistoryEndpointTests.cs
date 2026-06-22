@@ -170,7 +170,7 @@ public sealed class ReplayHistoryEndpointTests
     private async Task SeedBoardAsync(string boardId)
     {
         var boardRepository = _factory.Services.GetRequiredService<IBoardRepository>();
-        await boardRepository.GetOrCreateBoardAsync(boardId, TestContext.CancellationTokenSource.Token);
+        await boardRepository.GetOrCreateBoardAsync(boardId, 1.0, TestContext.CancellationTokenSource.Token);
     }
 
     private async Task<string> AppendAsync(string boardId, string userId)

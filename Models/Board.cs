@@ -11,4 +11,8 @@ public sealed class Board
     public DateTime CreatedAt { get; set; }
 
     public DateTime LastActivityAt { get; set; }
+
+    // The board's immutable width-to-height proportion (width ÷ height), fixed
+    // once by the creator's reported viewport and reproduced by every joiner.
+    public double AspectRatio { get; set; }
 }

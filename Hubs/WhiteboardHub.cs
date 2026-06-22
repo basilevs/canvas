@@ -12,6 +12,13 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
     private static readonly ConcurrentDictionary<string, DateTime> LastActivityRefreshes = new(StringComparer.Ordinal);
     private static readonly TimeSpan LastActivityRefreshInterval = TimeSpan.FromSeconds(30);
 
+    // A board's aspect ratio is derived from the creator's viewport, so it is
+    // clamped at this trust boundary to a sane range before being persisted; a
+    // malformed or absurd value cannot create a degenerate board.
+    private const double MinAspectRatio = 0.2;
+    private const double MaxAspectRatio = 5.0;
+    private const double DefaultAspectRatio = 1.0;
+
     private readonly IBoardRepository _boardRepository;
     private readonly IUserProfileRepository _userProfileRepository;
     private readonly IStrokeEventRepository _strokeEventRepository;
@@ -29,7 +36,7 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
         _logger = logger;
     }
 
-    public async Task<JoinBoardResponse> JoinBoard(string boardName, DateTime sinceTimestamp)
+    public async Task<JoinBoardResponse> JoinBoard(string boardName, DateTime sinceTimestamp, double aspectRatio = DefaultAspectRatio)
     {
         var cancellationToken = Context.ConnectionAborted;
         var userId = GetUserId();
@@ -39,10 +46,13 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
         }
 
         var profileTask = _userProfileRepository.GetOrCreateProfileAsync(userId, cancellationToken);
-        var boardTask = _boardRepository.GetOrCreateBoardAsync(boardId, cancellationToken);
+        // The proposed ratio is used only when the board is first created; for an
+        // existing board $setOnInsert leaves the creator's value untouched.
+        var boardTask = _boardRepository.GetOrCreateBoardAsync(boardId, ClampAspectRatio(aspectRatio), cancellationToken);
         await Task.WhenAll(profileTask, boardTask);
 
         var profile = await profileTask;
+        var board = await boardTask;
         await _userProfileRepository.SetLastBoardAsync(userId, boardId, cancellationToken);
         await _boardRepository.UpdateLastActivityAsync(boardId, cancellationToken);
         LastActivityRefreshes[boardId] = DateTime.UtcNow;
@@ -78,7 +88,7 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
 
         await Clients.OthersInGroup(boardId).UserJoined(userId, profile.DisplayName);
 
-        return new JoinBoardResponse(userId, profile.DisplayName);
+        return new JoinBoardResponse(userId, profile.DisplayName, board.AspectRatio);
     }
 
     public async Task LeaveBoard(string boardName)
@@ -287,6 +297,16 @@ public sealed class WhiteboardHub : Hub<IWhiteboardClient>
         }
 
         return now - lastRefresh >= LastActivityRefreshInterval;
+    }
+
+    private static double ClampAspectRatio(double aspectRatio)
+    {
+        if (!double.IsFinite(aspectRatio) || aspectRatio <= 0)
+        {
+            return DefaultAspectRatio;
+        }
+
+        return Math.Clamp(aspectRatio, MinAspectRatio, MaxAspectRatio);
     }
 
     private static StrokeResponse ToStrokeResponse(Stroke stroke)

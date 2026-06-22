@@ -169,13 +169,14 @@ internal sealed class InMemoryBoardRepository : IBoardRepository
 {
     private readonly Dictionary<string, Board> _boards = new(StringComparer.Ordinal);
 
-    public Task<Board> CreateBoardAsync(string boardId, CancellationToken cancellationToken)
+    public Task<Board> CreateBoardAsync(string boardId, double aspectRatio, CancellationToken cancellationToken)
     {
         var board = new Board
         {
             Id = boardId,
             CreatedAt = DateTime.UtcNow,
-            LastActivityAt = DateTime.UtcNow
+            LastActivityAt = DateTime.UtcNow,
+            AspectRatio = aspectRatio
         };
 
         _boards[boardId] = board;
@@ -188,14 +189,14 @@ internal sealed class InMemoryBoardRepository : IBoardRepository
         return Task.FromResult(board);
     }
 
-    public Task<Board> GetOrCreateBoardAsync(string boardId, CancellationToken cancellationToken)
+    public Task<Board> GetOrCreateBoardAsync(string boardId, double aspectRatio, CancellationToken cancellationToken)
     {
         if (_boards.TryGetValue(boardId, out var board))
         {
             return Task.FromResult(board);
         }
 
-        return CreateBoardAsync(boardId, cancellationToken);
+        return CreateBoardAsync(boardId, aspectRatio, cancellationToken);
     }
 
     public Task UpdateLastActivityAsync(string boardId, CancellationToken cancellationToken)

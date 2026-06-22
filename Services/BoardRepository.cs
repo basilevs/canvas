@@ -5,11 +5,11 @@ namespace Canvas.Services;
 
 public interface IBoardRepository
 {
-    Task<Board> CreateBoardAsync(string boardId, CancellationToken cancellationToken);
+    Task<Board> CreateBoardAsync(string boardId, double aspectRatio, CancellationToken cancellationToken);
 
     Task<Board?> GetBoardAsync(string boardId, CancellationToken cancellationToken);
 
-    Task<Board> GetOrCreateBoardAsync(string boardId, CancellationToken cancellationToken);
+    Task<Board> GetOrCreateBoardAsync(string boardId, double aspectRatio, CancellationToken cancellationToken);
 
     Task UpdateLastActivityAsync(string boardId, CancellationToken cancellationToken);
 }
@@ -24,7 +24,7 @@ public sealed class BoardRepository : IBoardRepository, IHostedService
         _boards = mongoDbContext.BoardsAsync;
     }
 
-    public async Task<Board> CreateBoardAsync(string boardId, CancellationToken cancellationToken)
+    public async Task<Board> CreateBoardAsync(string boardId, double aspectRatio, CancellationToken cancellationToken)
     {
         EnsureBoardId(boardId);
 
@@ -33,7 +33,8 @@ public sealed class BoardRepository : IBoardRepository, IHostedService
         {
             Id = boardId,
             CreatedAt = now,
-            LastActivityAt = now
+            LastActivityAt = now,
+            AspectRatio = aspectRatio
         };
 
         var boards = await _boards;
@@ -47,15 +48,19 @@ public sealed class BoardRepository : IBoardRepository, IHostedService
         return await boards.Find(board => board.Id == boardId).FirstOrDefaultAsync(cancellationToken);
     }
 
-    public async Task<Board> GetOrCreateBoardAsync(string boardId, CancellationToken cancellationToken)
+    public async Task<Board> GetOrCreateBoardAsync(string boardId, double aspectRatio, CancellationToken cancellationToken)
     {
         EnsureBoardId(boardId);
 
         var now = DateTime.UtcNow;
         var filter = Builders<Board>.Filter.Eq(board => board.Id, boardId);
+        // The aspect ratio is stamped only on insert ($setOnInsert), so the first
+        // (creator) join fixes it atomically and concurrent first-joiners converge
+        // on the single persisted value; later joins leave it untouched.
         var update = Builders<Board>.Update
             .SetOnInsert(board => board.CreatedAt, now)
-            .SetOnInsert(board => board.LastActivityAt, now);
+            .SetOnInsert(board => board.LastActivityAt, now)
+            .SetOnInsert(board => board.AspectRatio, aspectRatio);
 
         var options = new FindOneAndUpdateOptions<Board>
         {
