@@ -212,6 +212,11 @@ class WhiteboardCanvas {
 
     this.#render();
     this.#renderVolatile();
+
+    // In live mode #render above repaints the board. In replay mode the canvas
+    // suppresses its own rendering because the ReplayEngine owns the (now
+    // cleared) backing store, so notify the owner to repaint the current frame.
+    this.handlers.onResize?.();
   };
 
   // The space the board may occupy: the shell's container width and the shell's

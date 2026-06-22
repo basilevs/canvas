@@ -46,6 +46,15 @@ const whiteboardCanvas = createWhiteboardCanvas(canvasElement, {
     if (state.boardName) {
       connection.moveCursor(state.boardName, x, y);
     }
+  },
+  onResize: () => {
+    // The ReplayEngine owns the canvas during replay (the canvas suppresses its
+    // own render to avoid fighting it), so after a resize cleared the backing
+    // store, ask the engine to repaint the current frame at the new size. No-op
+    // when live, where the canvas's own #render already repainted.
+    if (state.replayEngine) {
+      state.replayEngine.renderAt(state.replayEngine.elapsedMs);
+    }
   }
 });
 
@@ -234,18 +243,14 @@ async function startReplay() {
   // updates incrementally again, while keeping the replay controls visible so the
   // user can still scrub back or replay. The engine stays parked at the final
   // frame; playing or scrubbing again re-enters replay mode (see configureReplay).
-  engine.onEnd = async () => {
+  // Reaching the end parks the engine at the final frame but keeps the board in
+  // replay mode (editing stays disabled) until the user explicitly Stops. The
+  // engine remains the canvas owner; a resize repaints the frame via onResize.
+  engine.onEnd = () => {
     state.replayPaused = true;
     state.replayEnded = true;
     btnReplayPlayPause.textContent = '▶ Play';
-    // Re-enable live rendering after resyncing, otherwise the canvas stays in
-    // replay mode (#render suppressed) and a later resize clears the board with
-    // nothing to repaint it. Mirrors exitReplay's hand-back to the live board.
-    try {
-      await resyncLiveCanvas();
-    } finally {
-      whiteboardCanvas.setReplaying(false);
-    }
+    resyncLiveCanvas();
   };
 
   state.replayEngine = engine;
