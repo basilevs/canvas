@@ -199,7 +199,9 @@ function configureReplay() {
     }
 
     reenterReplayIfEnded();
-    state.replayEngine.seek(Number(replayScrubber.value));
+    // The scrubber emits a 0..1 ratio; convert it to absolute ms here at the UI
+    // boundary so the engine's position API stays in milliseconds.
+    state.replayEngine.seekTo(Number(replayScrubber.value) * state.replayEngine.totalDurationMs);
   });
 
   replaySpeedSelect.addEventListener('change', () => {

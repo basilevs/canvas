@@ -125,11 +125,13 @@ export class ReplayEngine {
     this.rafId = requestAnimationFrame(this.tick);
   }
 
-  seek(positionRatio) {
-    const ratio = Math.min(1, Math.max(0, positionRatio));
-    this.elapsedMs = ratio * this.totalDurationMs;
+  // Moves the playhead to an absolute time (clamped to the timeline) and applies
+  // that board state. The scrubber's 0..1 ratio is converted to ms at the UI
+  // boundary, so the engine's position API speaks only absolute milliseconds.
+  seekTo(elapsedMs) {
+    this.elapsedMs = Math.min(Math.max(elapsedMs, 0), this.totalDurationMs);
     this.lastFrame = performance.now();
-    this.renderAt(this.elapsedMs);
+    this.#applyAt(this.elapsedMs);
     this.reportProgress();
   }
 
@@ -158,23 +160,23 @@ export class ReplayEngine {
 
     if (this.elapsedMs >= this.totalDurationMs) {
       this.elapsedMs = this.totalDurationMs;
-      this.renderAt(this.elapsedMs);
+      this.#applyAt(this.elapsedMs);
       this.reportProgress();
       this.playing = false;
       this.onEnd?.();
       return;
     }
 
-    this.renderAt(this.elapsedMs);
+    this.#applyAt(this.elapsedMs);
     this.reportProgress();
     this.rafId = requestAnimationFrame(this.tick);
   }
 
-  // Apply the board state for `elapsedMs` by issuing canvas commands: advance (or
-  // rebuild) the committed layer, then hand the canvas the set of in-progress
-  // stroke prefixes. The canvas owns all pixels, so this is resize-safe by
-  // construction — a resize just repaints the same owned state.
-  renderAt(elapsedMs) {
+  // Applies the board state for `elapsedMs` by issuing canvas commands: advance
+  // (or rebuild) the committed layer, then hand the canvas the in-progress stroke
+  // prefixes. The canvas owns all pixels, so this is resize-safe by construction —
+  // a WhiteboardCanvas just repaints the same owned state on resize.
+  #applyAt(elapsedMs) {
     if (elapsedMs < this.appliedMs) {
       this.#rebuildCommitted(elapsedMs);
     } else {

@@ -135,9 +135,9 @@ test('seek to the midpoint commits past strokes and shows no in-progress stroke'
     lastProgress = progress;
   };
 
-  // totalDurationMs = 4000, so 0.5 -> elapsedMs 2000: after s1 finishes (1000)
+  // totalDurationMs = 4000, so 2000ms is the midpoint: after s1 finishes (1000)
   // and before s2 begins (3000).
-  engine.seek(0.5);
+  engine.seekTo(engine.totalDurationMs * 0.5);
 
   assert.deepEqual(board.committedIds(), ['s1'], 'the finished stroke is committed');
   assert.deepEqual(board.activeIds(), [], 'nothing is mid-animation at the midpoint');
@@ -153,7 +153,7 @@ test('a Remove hides a stroke that is undone before its draw finishes', () => {
   ];
   engine.computeTimeline(events);
 
-  engine.seek(1);
+  engine.seekTo(engine.totalDurationMs);
 
   assert.deepEqual(board.committedIds(), [], 'removed stroke is not committed');
   assert.deepEqual(board.activeIds(), [], 'and is not left in the in-progress tail');
@@ -186,24 +186,24 @@ test('completed strokes are committed once; in-progress strokes go to the active
   // Frame 0: replay starts — nothing has finished yet, s1 begins animating. The
   // first frame rebuilds the committed set (entering replay), so commitStroke is
   // exercised only once playback advances past a completion.
-  engine.renderAt(0);
+  engine.seekTo(0);
   assert.deepEqual(board.committedIds(), [], 'nothing committed at the start');
   assert.deepEqual(board.activeIds(), ['s1'], 's1 is animating from the start');
 
   // Frame 1: s1 (0..100) is now complete and committed; s2 has not started.
-  engine.renderAt(150);
+  engine.seekTo(150);
   assert.deepEqual(board.committedIds(), ['s1'], 's1 committed');
   assert.deepEqual(board.activeIds(), [], 'nothing in progress at t=150');
   assert.deepEqual(board.commits, ['s1']);
 
   // Frame 2: s2 is now in progress; s1 must NOT be committed again.
-  engine.renderAt(250);
+  engine.seekTo(250);
   assert.deepEqual(board.commits, ['s1'], 's1 is committed exactly once');
   assert.deepEqual(board.activeIds(), ['s2'], 'only the in-progress stroke is active');
   assert.equal(board.activePoints('s2').length, 2, 's2 prefix is its first two points at +50ms');
 
   // Frame 3: still mid-s2. No new commits; history is not re-emitted.
-  engine.renderAt(260);
+  engine.seekTo(260);
   assert.deepEqual(board.commits, ['s1']);
   assert.deepEqual(board.activeIds(), ['s2']);
 });
@@ -217,11 +217,11 @@ test('seeking backwards rebuilds the committed set via a snapshot', () => {
   engine.computeTimeline(events);
 
   // Play forward past both strokes: both committed.
-  engine.renderAt(350);
+  engine.seekTo(350);
   assert.deepEqual(board.committedIds(), ['s1', 's2']);
 
   // Seek back before s2 started: the committed set is rebuilt to only s1.
-  engine.renderAt(150);
+  engine.seekTo(150);
   assert.deepEqual(board.committedIds(), ['s1'], 's2 is in the future after seeking back');
   assert.deepEqual(board.activeIds(), []);
 });
@@ -237,11 +237,11 @@ test('a Remove rebuilds the committed set, dropping the removed stroke', () => {
   engine.computeTimeline(events);
 
   // Before the Remove: both strokes committed.
-  engine.renderAt(350);
+  engine.seekTo(350);
   assert.deepEqual(board.committedIds(), ['s1', 's2']);
 
   // After the Remove takes effect: rebuilt to s2 only.
-  engine.renderAt(450);
+  engine.seekTo(450);
   assert.deepEqual(board.committedIds(), ['s2']);
   assert.deepEqual(board.activeIds(), []);
 });
