@@ -27,7 +27,9 @@ export class ReplayEngine {
     this.playing = false;
     this.rafId = null;
     this.lastFrame = 0;
-    this.currentWallClock = null;
+    // The recorded timestamp of the event at the playhead (not the current time),
+    // surfaced to the UI as the replay's "when this happened" label.
+    this.currentEventTimestamp = null;
 
     this.onProgress = null;
     this.onStop = null;
@@ -72,7 +74,7 @@ export class ReplayEngine {
         // The moment this entry's visual effect is final: a Remove takes effect at
         // its start; an Add is done once its last point has been drawn.
         completionMs: cumulativeMs + (type === 'Remove' ? 0 : strokeDurationMs),
-        wallClock: event.timestamp ?? event.Timestamp
+        timestamp: event.timestamp ?? event.Timestamp
       });
 
       previousWallMs = wallMs;
@@ -189,7 +191,7 @@ export class ReplayEngine {
   resetApply() {
     this.committedCursor = 0;
     this.appliedMs = Number.POSITIVE_INFINITY;
-    this.currentWallClock = null;
+    this.currentEventTimestamp = null;
   }
 
   // Forward path: commit each stroke whose animation has just finished. A Remove
@@ -240,13 +242,13 @@ export class ReplayEngine {
   // the overlay above the committed layer, so only the overlay repaints per frame.
   #applyActive(elapsedMs) {
     const active = new Map();
-    let wallClock = this.currentWallClock;
+    let eventTimestamp = this.currentEventTimestamp;
 
     for (const entry of this.timeline) {
       if (entry.startMs > elapsedMs) {
         break;
       }
-      wallClock = entry.wallClock;
+      eventTimestamp = entry.timestamp;
 
       if (entry.type === 'Remove') {
         active.delete(entry.strokeId);
@@ -273,13 +275,13 @@ export class ReplayEngine {
       });
     }
 
-    this.currentWallClock = wallClock;
+    this.currentEventTimestamp = eventTimestamp;
     this.board.setActiveStrokes([...active.values()]);
   }
 
   reportProgress() {
     const ratio = this.totalDurationMs > 0 ? this.elapsedMs / this.totalDurationMs : 0;
-    this.onProgress?.({ ratio, timestamp: this.currentWallClock });
+    this.onProgress?.({ ratio, timestamp: this.currentEventTimestamp });
   }
 
   cancelFrame() {
