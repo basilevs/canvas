@@ -210,7 +210,7 @@ function reenterReplayIfEnded() {
   }
 
   state.replayEnded = false;
-  whiteboardCanvas.setReplaying(true);
+  whiteboardCanvas.setEditable(false);
 }
 
 async function startReplay() {
@@ -257,7 +257,7 @@ async function startReplay() {
   }
 
   refreshToolbar();
-  whiteboardCanvas.setReplaying(true);
+  whiteboardCanvas.setEditable(false);
   engine.play();
 }
 
@@ -270,7 +270,7 @@ async function exitReplay() {
   try {
     await resyncLiveCanvas();
   } finally {
-    whiteboardCanvas.setReplaying(false);
+    whiteboardCanvas.setEditable(true);
   }
 }
 

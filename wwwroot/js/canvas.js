@@ -55,7 +55,9 @@ class WhiteboardCanvas {
     this.activePointerId = null;
     this.currentColor = DEFAULT_COLOR;
     this.currentWidth = 4;
-    this.replaying = false;
+    // Whether local drawing is accepted. Disabled during replay so the user
+    // views history without editing it; rendering is unaffected by this flag.
+    this.editable = true;
     // The board's fixed width-to-height ratio. Null means "not yet negotiated":
     // the canvas fills the available area (so a fresh creator board looks right
     // immediately); setAspectRatio locks it to the board's established value.
@@ -104,12 +106,13 @@ class WhiteboardCanvas {
     return width > 0 && height > 0 ? width / height : 1;
   }
 
-  // Replay gates input only: while a replay is in progress local drawing is
-  // blocked (#handlePointerDown checks this.replaying). Rendering always reflects
-  // the board's owned state, which the ReplayEngine drives via commands
-  // (setSnapshot / commitStroke / removeStroke / setActiveStrokes).
-  setReplaying(value) {
-    this.replaying = value;
+  // Enables or disables local editing. Drawing is blocked while not editable
+  // (#handlePointerDown checks this.editable) — used to lock the board during
+  // replay. Rendering is unaffected: it always reflects the board's owned state,
+  // which the ReplayEngine drives via commands (setSnapshot / commitStroke /
+  // removeStroke / setActiveStrokes).
+  setEditable(value) {
+    this.editable = value;
     this.#render();
     this.#renderVolatile();
   }
@@ -244,7 +247,7 @@ class WhiteboardCanvas {
   }
 
   #handlePointerDown = (event) => {
-    if (event.button !== 0 || this.replaying) {
+    if (event.button !== 0 || !this.editable) {
       return;
     }
 
@@ -434,8 +437,9 @@ class WhiteboardCanvas {
       this.#drawVolatileStroke(this.currentStroke);
     }
 
-    // Remote cursors are live presence, not part of a replay frame.
-    if (!this.replaying) {
+    // Remote cursors are live presence, shown only while the board is editable
+    // (hidden during replay).
+    if (this.editable) {
       for (const [userId, cursor] of this.remoteCursors.entries()) {
         this.#drawRemoteCursor(userId, cursor);
       }
