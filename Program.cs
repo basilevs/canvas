@@ -59,14 +59,18 @@ app.UseMiddleware<UserIdentityMiddleware>();
 // Static assets are served under stable, unversioned URLs (e.g. /js/app.js,
 // /css/style.css, index.html), so without an explicit Cache-Control the browser
 // applies heuristic freshness and keeps serving the cached copy even after a
-// redeploy. Emit `no-cache` so every load revalidates; the ETag/Last-Modified the
-// middleware already attaches still yields a cheap 304 when the file is unchanged
-// and a fresh 200 once it changes.
+// redeploy. `max-age=0` marks the response stale immediately so it is always
+// revalidated, while `stale-while-revalidate` lets the browser serve the cached
+// (old) copy instantly and revalidate in the background: the ETag/Last-Modified
+// the middleware already attaches yields a cheap 304 when unchanged, and the
+// fresh 200 after a redeploy is picked up on the next load.
+const string staleWhileRevalidateSeconds = "86400";
 var staticFileOptions = new StaticFileOptions
 {
     OnPrepareResponse = context =>
     {
-        context.Context.Response.Headers.CacheControl = "no-cache";
+        context.Context.Response.Headers.CacheControl =
+            "max-age=0, stale-while-revalidate=" + staleWhileRevalidateSeconds;
     }
 };
 
