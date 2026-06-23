@@ -55,7 +55,22 @@ if (app.Environment.IsDevelopment())
 
 app.UseExceptionHandler();
 app.UseMiddleware<UserIdentityMiddleware>();
-app.UseStaticFiles();
+
+// Static assets are served under stable, unversioned URLs (e.g. /js/app.js,
+// /css/style.css, index.html), so without an explicit Cache-Control the browser
+// applies heuristic freshness and keeps serving the cached copy even after a
+// redeploy. Emit `no-cache` so every load revalidates; the ETag/Last-Modified the
+// middleware already attaches still yields a cheap 304 when the file is unchanged
+// and a fresh 200 once it changes.
+var staticFileOptions = new StaticFileOptions
+{
+    OnPrepareResponse = context =>
+    {
+        context.Context.Response.Headers.CacheControl = "no-cache";
+    }
+};
+
+app.UseStaticFiles(staticFileOptions);
 
 app.MapGet("/favicon.ico", () => Results.Redirect("/favicon.svg", permanent: true));
 
@@ -168,7 +183,7 @@ app.MapGet("/", async Task<IResult> (
 .ExcludeFromDescription();
 
 app.MapHub<WhiteboardHub>("/hub/whiteboard");
-app.MapFallbackToFile("/boards/{*slug}", "index.html");
+app.MapFallbackToFile("/boards/{*slug}", "index.html", staticFileOptions);
 
 app.Run();
 
