@@ -64,13 +64,13 @@ app.UseMiddleware<UserIdentityMiddleware>();
 // (old) copy instantly and revalidate in the background: the ETag/Last-Modified
 // the middleware already attaches yields a cheap 304 when unchanged, and the
 // fresh 200 after a redeploy is picked up on the next load.
-const string staleWhileRevalidateSeconds = "86400";
+const int oneDayInSeconds = 24 * 60 * 60;
 var staticFileOptions = new StaticFileOptions
 {
     OnPrepareResponse = context =>
     {
         context.Context.Response.Headers.CacheControl =
-            "max-age=0, stale-while-revalidate=" + staleWhileRevalidateSeconds;
+            "max-age=0, stale-while-revalidate=" + oneDayInSeconds;
     }
 };
 
