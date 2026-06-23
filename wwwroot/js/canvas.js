@@ -44,18 +44,20 @@ class WhiteboardCanvas {
     this.context = canvasElement.getContext('2d');
     this.handlers = handlers;
     this.confirmedStrokes = [];
-    // Locally completed strokes that have been sent but not yet echoed back by
-    // the backend. Keyed by stroke id so several in-flight strokes can be drawn
-    // at once; each one is kept visible until its confirmed copy arrives via
-    // commitStroke. A single slot would let a freshly started stroke wipe out a
-    // prior preview that is still mid-send.
-    this.previewStrokes = new Map();
+    // Strokes painted on the volatile overlay but not yet baked into the
+    // committed layer: locally-completed strokes awaiting the backend echo
+    // (live), and the ReplayEngine's in-progress stroke prefixes (replay). Keyed
+    // by stroke id so several can be drawn at once; live entries are cleared as
+    // their confirmed copy arrives via commitStroke.
+    this.overlayStrokes = new Map();
     this.remoteCursors = new Map();
     this.currentStroke = null;
     this.activePointerId = null;
     this.currentColor = DEFAULT_COLOR;
     this.currentWidth = 4;
-    this.replaying = false;
+    // Whether local drawing is accepted. The replay flow disables it so the user
+    // views history read-only; rendering stays independent of this flag.
+    this.editable = true;
     // The board's fixed width-to-height ratio. Null means "not yet negotiated":
     // the canvas fills the available area (so a fresh creator board looks right
     // immediately); setAspectRatio locks it to the board's established value.
@@ -104,22 +106,20 @@ class WhiteboardCanvas {
     return width > 0 && height > 0 ? width / height : 1;
   }
 
-  // While replaying, the ReplayEngine owns the canvas: suppress live rendering and
-  // input so animation frames are not clobbered. Leaving replay repaints current state.
-  setReplaying(value) {
-    this.replaying = value;
-    if (value) {
-      // Hide overlay visuals while the replay engine animates the strokes layer.
-      this.#clearVolatile();
-    } else {
-      this.#render();
-      this.#renderVolatile();
-    }
+  // Enables or disables local editing — used to lock the board during replay.
+  // Drawing is accepted only while editable (#handlePointerDown checks
+  // this.editable). Rendering stays independent of this flag: it always reflects
+  // the board's owned state, which the ReplayEngine drives via commands
+  // (setSnapshot / commitStroke / removeStroke / setActiveStrokes).
+  setEditable(value) {
+    this.editable = value;
+    this.#render();
+    this.#renderVolatile();
   }
 
   setSnapshot(strokes) {
     this.confirmedStrokes = Array.isArray(strokes) ? [...strokes] : [];
-    this.previewStrokes.clear();
+    this.overlayStrokes.clear();
     this.#render();
     this.#renderVolatile();
   }
@@ -130,7 +130,7 @@ class WhiteboardCanvas {
     }
 
     const strokeId = stroke.id ?? stroke.Id;
-    this.previewStrokes.delete(strokeId);
+    this.overlayStrokes.delete(strokeId);
 
     if (!this.confirmedStrokes.some(existing => getStrokeId(existing) === strokeId)) {
       this.confirmedStrokes.push(normalizeStroke(stroke));
@@ -145,7 +145,7 @@ class WhiteboardCanvas {
       return;
     }
 
-    let changed = this.previewStrokes.delete(strokeId);
+    let changed = this.overlayStrokes.delete(strokeId);
     const index = this.confirmedStrokes.findIndex(existing => getStrokeId(existing) === strokeId);
     if (index !== -1) {
       this.confirmedStrokes.splice(index, 1);
@@ -156,6 +156,22 @@ class WhiteboardCanvas {
       this.#render();
       this.#renderVolatile();
     }
+  }
+
+  // Replaces the overlay's in-progress strokes wholesale. The ReplayEngine calls
+  // this each frame with the currently-animating stroke prefixes; live drawing
+  // instead adds/removes individual overlay entries via the pointer handlers and
+  // commitStroke/removeStroke. Only the overlay repaints — the committed layer is
+  // untouched, so this stays cheap per frame.
+  setActiveStrokes(strokes) {
+    this.overlayStrokes.clear();
+    for (const stroke of strokes) {
+      const id = stroke.id ?? stroke.Id;
+      if (id) {
+        this.overlayStrokes.set(id, stroke);
+      }
+    }
+    this.#renderVolatile();
   }
 
   setRemoteCursor(userId, cursor) {
@@ -174,6 +190,16 @@ class WhiteboardCanvas {
 
   removeRemoteCursor(userId) {
     this.remoteCursors.delete(userId);
+    this.#renderVolatile();
+  }
+
+  // Clears every remote cursor. The replay flow calls this on entry; live cursor
+  // updates repopulate the map once the board is live again.
+  clearRemoteCursors() {
+    if (this.remoteCursors.size === 0) {
+      return;
+    }
+    this.remoteCursors.clear();
     this.#renderVolatile();
   }
 
@@ -231,7 +257,7 @@ class WhiteboardCanvas {
   }
 
   #handlePointerDown = (event) => {
-    if (event.button !== 0 || this.replaying) {
+    if (event.button !== 0 || !this.editable) {
       return;
     }
 
@@ -303,7 +329,7 @@ class WhiteboardCanvas {
       SIMPLIFY_THRESHOLD_CSS_PX / this.#boardWidthCss(),
       completedStroke.width ?? completedStroke.Width ?? 4
     );
-    this.previewStrokes.set(getStrokeId(completedStroke), completedStroke);
+    this.overlayStrokes.set(getStrokeId(completedStroke), completedStroke);
     this.#renderVolatile();
     this.handlers.onStrokeCompleted?.(completedStroke);
   };
@@ -391,7 +417,7 @@ class WhiteboardCanvas {
 
   #render() {
     const context = this.context;
-    if (!context || this.replaying) {
+    if (!context) {
       return;
     }
 
@@ -408,16 +434,13 @@ class WhiteboardCanvas {
     // Volatile overlay renders local in-flight/pending preview strokes.
   }
 
-  // Repaints only volatile overlay visuals (remote cursors + local preview),
-  // leaving confirmed stroke history untouched.
+  // Repaints only the volatile overlay (overlay strokes + the local in-flight
+  // stroke + remote cursors), leaving the committed stroke layer untouched.
   #renderVolatile() {
     this.#clearVolatile();
-    if (this.replaying) {
-      return;
-    }
 
-    for (const previewStroke of this.previewStrokes.values()) {
-      this.#drawVolatileStroke(previewStroke);
+    for (const overlayStroke of this.overlayStrokes.values()) {
+      this.#drawVolatileStroke(overlayStroke);
     }
 
     if (this.currentStroke) {
@@ -456,14 +479,11 @@ class WhiteboardCanvas {
       return;
     }
 
-    context.save();
-    context.globalAlpha = 0.85;
     drawStrokePath(context, stroke.points ?? stroke.Points ?? [], {
       scale: this.canvas.width,
       color: stroke.color ?? stroke.Color ?? DEFAULT_COLOR,
       baseWidth: stroke.width ?? stroke.Width ?? 4
     });
-    context.restore();
   }
 
   #drawRemoteCursor(userId, cursor) {

@@ -92,6 +92,12 @@ const connection = createWhiteboardConnection({
       renderUsers();
     }
 
+    // While replaying, the replay flow owns the board and has cleared cursors, so
+    // skip live cursor updates until it exits.
+    if (state.replayEngine) {
+      return;
+    }
+
     whiteboardCanvas.setRemoteCursor(userId, { x, y });
   },
   onStateChanged: message => updateStatus(message)
@@ -193,7 +199,9 @@ function configureReplay() {
     }
 
     reenterReplayIfEnded();
-    state.replayEngine.seek(Number(replayScrubber.value));
+    // The scrubber emits a 0..1 ratio; convert it to absolute ms here at the UI
+    // boundary so the engine's position API stays in milliseconds.
+    state.replayEngine.seekTo(Number(replayScrubber.value) * state.replayEngine.totalDurationMs);
   });
 
   replaySpeedSelect.addEventListener('change', () => {
@@ -210,7 +218,7 @@ function reenterReplayIfEnded() {
   }
 
   state.replayEnded = false;
-  whiteboardCanvas.setReplaying(true);
+  whiteboardCanvas.setEditable(false);
 }
 
 async function startReplay() {
@@ -218,8 +226,7 @@ async function startReplay() {
     return;
   }
 
-  const context = canvasElement.getContext('2d');
-  const engine = new ReplayEngine(context, {
+  const engine = new ReplayEngine(whiteboardCanvas, {
     gapThresholdMs: 3000,
     speed: Number(replaySpeedSelect.value)
   });
@@ -234,6 +241,9 @@ async function startReplay() {
   // updates incrementally again, while keeping the replay controls visible so the
   // user can still scrub back or replay. The engine stays parked at the final
   // frame; playing or scrubbing again re-enters replay mode (see configureReplay).
+  // Reaching the end parks the engine at the final frame but keeps the board in
+  // replay mode (editing stays disabled) until the user explicitly Stops. The
+  // engine remains the canvas owner; a resize repaints the frame via onResize.
   engine.onEnd = () => {
     state.replayPaused = true;
     state.replayEnded = true;
@@ -255,7 +265,8 @@ async function startReplay() {
   }
 
   refreshToolbar();
-  whiteboardCanvas.setReplaying(true);
+  whiteboardCanvas.clearRemoteCursors();
+  whiteboardCanvas.setEditable(false);
   engine.play();
 }
 
@@ -268,7 +279,7 @@ async function exitReplay() {
   try {
     await resyncLiveCanvas();
   } finally {
-    whiteboardCanvas.setReplaying(false);
+    whiteboardCanvas.setEditable(true);
   }
 }
 
