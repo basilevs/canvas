@@ -65,10 +65,11 @@ Both are the single anonymous-collaborator actor from the MVP; this feature adds
 - **FR-1 — Curve-based path rendering.** `drawStrokePath` renders the path through the stored points as a smooth curve (Bézier or circular arc) instead of straight `lineTo` segments. The stored points remain the curve's defining/interpolated knots.
 - **FR-2 — Single render primitive.** The smoothing lives entirely inside the shared `drawStrokePath` primitive so that the confirmed-stroke layer, volatile preview, and replay engine all use it with no per-call-site changes.
 - **FR-3 — Interpolation, not approximation, of stored points.** The curve passes through (interpolates) every stored point rather than merely approximating them, so a smoothed stroke does not drift away from where the user drew. (The chosen algorithm — see §9 — must satisfy this; a corner-cutting/approximating scheme is acceptable only if it keeps maximum deviation below NFR-2's bound.)
-- **FR-4 — Pressure-driven width preserved.** Line width continues to vary with per-point pressure along the curve. Because Canvas 2D cannot vary `lineWidth` within a single curve call, the curve is tessellated into short sub-segments whose width is interpolated from the bracketing points' pressure, preserving today's behavior (`baseWidth * pressureFactor * scale`). Null pressure continues to mean full width.
+- **FR-4 — Pressure-driven width preserved.** Line width continues to vary with per-point pressure along the curve. Because Canvas 2D cannot vary `lineWidth` within a single curve call, the curve is tessellated into short sub-segments whose width is interpolated from the bracketing points' pressure, preserving today's behavior (`baseWidth * pressureFactor * scale`). When pressure is unavailable, rendering uses `pressure = 0.5` (neutral Pointer Events fallback) unless an explicit value is provided.
 - **FR-5 — Normalized coordinates and scale unchanged.** Smoothing operates in the existing normalized (width-relative) coordinate space and is mapped to device pixels via the same `scale` argument; it adds no new coordinate space.
 - **FR-6 — Two-point and single-point cases preserved.** A stroke with two points renders as a straight segment; a single isolated point continues to render as a filled dot sized to the line at that point (the existing `drewSegment`/`lastVisible` behavior is retained).
-- **FR-7 — Replay time-clipping preserved.** The `upToMs` time cutoff used by replay continues to work: only points at or before the cutoff contribute to the curve, and the partially-revealed curve is smooth at each frame.
+- **FR-7 — Replay time-clipping preserved.** The `upToMs` time cutoff used by replay continues to work, but clipping remains outside the smoothing algorithm. Smoothing computes full stroke geometry from visible points; any visual clipping is handled by existing render/canvas boundaries and natural canvas cut-offs.
+	- **Revisit trigger:** if replay shows observable "wiggling" of the last drawn span near the time cutoff, revisit this decision and evaluate a stabilization strategy at the replay/render boundary (not inside the smoothing algorithm).
 - **FR-8 — Placement decision is explicit and documented.** The chosen smoothing placement — render-time (inside `drawStrokePath`) versus capture-time (enriching captured data with per-point tangent hints, or storing curve parameters, while keeping retained anchors as true captured positions) — must be a deliberate, recorded decision per §10. For the **render-time** default, capture (`#appendPoint`/`#toCanvasPoint`), `simplifyPointsVisvalingamWhyatt`, the stroke/point DTOs, and hub messages remain untouched. If a **capture-time** approach is adopted, it must keep the anchors it retains as true captured positions — dropping/filtering points (as VW already does) is allowed, but in-place resampling/smoothing that **relocates** retained points is not — and it must justify the change against §10's trade-offs and keep simplification and sync working. **Backward compatibility of the data format is explicitly not required** — the project has no consumers yet, so the schema/DTOs/wire may change freely (see the decision in §10).
 - **FR-9 — Both casing conventions tolerated.** The smoothing code reads point coordinates and pressure tolerating both `x/y/pressure` and `X/Y/Pressure` shapes, matching `drawStrokePath`'s existing dual-casing handling.
 - **FR-10 — Tunable smoothing strength.** The algorithm exposes a small number of constants (e.g. spline tension and/or tessellation resolution) defined in one place so the smoothness-vs-fidelity and smoothness-vs-cost trade-offs can be adjusted without structural change.
@@ -93,7 +94,7 @@ Both are the single anonymous-collaborator actor from the MVP; this feature adds
 ### US-4 — Pressure thickness preserved
 
 - Given a pressure-varying stroke, When rendered smoothed, Then line width still varies along the curve in proportion to per-point pressure, matching the pre-smoothing width at each stored point within rounding.
-- Given a stroke with `null` pressure on every point (e.g. mouse), When rendered, Then the curve is drawn at the full configured width along its length.
+- Given a stroke with unavailable pressure on every point (e.g. mouse), When rendered, Then the curve uses the neutral fallback `pressure = 0.5` consistently along its length.
 
 ### US-5 / US-6 — Faithful, no overshoot, corners respected
 
@@ -111,7 +112,7 @@ Both are the single anonymous-collaborator actor from the MVP; this feature adds
 
 ### US-10 — Smooth replay
 
-- Given a replay animating a stroke point-by-point via `upToMs`, When each frame is rendered, Then the partially-revealed stroke is smooth and only includes points at or before the cutoff, and the final frame matches the confirmed-history rendering.
+- Given a collaborator watching replay, When a stroke is revealed over time, Then the visible stroke progression appears smooth and stable frame-to-frame (no distracting edge jitter at the leading end), and the completed replayed stroke matches the confirmed-history rendering.
 
 ### NFR — Performance
 
@@ -185,7 +186,22 @@ Once §9 has defined the curve geometry, `drawStrokePath` must emit actual Canva
 
 **First explorative implementation: Option A + R3.** Start the spike with **Option A (quadratic-midpoint) rendered via R3 (per-span `quadraticCurveTo`, one `stroke()` per span at that span's averaged width).** Rationale: (1) it is the **easiest to implement** — quadratic midpoints need no tangent/control derivation and R3 is a small change to the existing per-segment loop; (2) it is **fast on mobile** — native curve calls with one `stroke()` per span mean far fewer draw calls than R1's full tessellation, which matters most on low-end touch devices; (3) it **keeps pressure-driven width**, which is **critical for the project's cross-platform support** (pen/touch pressure is a core input signal, so R2's constant-width path is unacceptable as the primary renderer); and (4) it lets us **measure how bad Option A's approximation error is during natural drawing** before investing in the interpolating Option B or the costlier R1/R4. If the corner-rounding error proves objectionable in practice, the fallback is to switch the *algorithm* to Option B (still under R3) or the *renderer* to R1 for finer width — both incremental from this starting point.
 
-**Recommendation for Option R:** ship the **Option A + R3** spike first (above) and evaluate its error/perf on real devices. From there, escalate only as needed: switch to **Option B** (interpolation) if approximation error is too visible, to **R1** if you need sub-segment width fidelity, to **R2** as a cheap constant-width fast path for `null`-pressure strokes, or to **R4** if brush-quality width becomes a goal. Across all variants, build and **cache a per-stroke path/tessellation** and reuse it across redraws so confirmed-history repaints stay within the NFR-1 budget.
+### Locked implementation decisions for the Option A + R3 spike (2026-06-24)
+
+- Apply smoothing to all render surfaces immediately: live preview, confirmed history, and replay.
+- Use per-span width = endpoint pressure average for R3.
+- Preserve degenerate rules exactly: single-point stroke renders as dot; exactly two points render as straight segment.
+- Do not add a corner-preservation guard in v1 (pure Option A baseline first).
+- Validate approximation quality manually first (visual acceptance), then tighten with metrics only if needed.
+- Treat unavailable pressure as `0.5` (neutral fallback), verifying browser behavior against Pointer Events semantics during implementation.
+- Replay clipping remains a render/canvas boundary concern; the smoothing algorithm stays clipping-agnostic.
+- Do not add fast-path renderer branches in this spike; keep one R3 path.
+- Keep minimal internal tunables in one place (no UI), sufficient for later adjustment.
+- Add no extra exclusions beyond PRD degenerate rules; leave a clearly marked code placeholder where future exclusions can be added.
+- Use manual-first performance validation for this spike unless a low-cost objective metric emerges.
+- Prioritize deterministic behavior tests first, plus manual visual validation.
+
+**Recommendation for Option R:** ship the **Option A + R3** spike first (above) and evaluate its error/perf on real devices. From there, escalate only as needed: switch to **Option B** (interpolation) if approximation error is too visible, to **R1** if you need sub-segment width fidelity, or to **R4** if brush-quality width becomes a goal. Across all variants, build and **cache a per-stroke path/tessellation** and reuse it across redraws so confirmed-history repaints stay within the NFR-1 budget.
 
 Capture-time approaches must **keep the retained anchors as true captured positions**. Dropping/filtering points is expected — `simplifyPointsVisvalingamWhyatt` already does it, and at least some true anchors always survive. What is an **anti-pattern and explicitly rejected** is smoothing or resampling that **relocates** the points it keeps (EMA/median/arc-length resampling that overwrites positions): it loses precision even at the points the user actually drew and corrupts the data every downstream consumer relies on. The two viable capture-time options below instead keep the surviving anchors at their true positions and add the curvature information *alongside* them.
 
