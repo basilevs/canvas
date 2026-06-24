@@ -305,10 +305,10 @@ function strokeDuration(stroke) {
   return max;
 }
 
-// The visible prefix of an in-progress stroke at local time `localMs`: the points
-// whose timeOffset has been reached. Equivalent to drawStrokePath's `upToMs`
-// truncation (which is point-granular), so handing this prefix to the canvas as a
-// whole stroke reproduces the same frame without the canvas knowing about time.
+// The visible prefix of an in-progress stroke at local time `localMs`: the
+// points whose timeOffset has been reached. The canvas renderer is
+// clipping-agnostic and draws whichever points it receives, so replay performs
+// time clipping here by passing this prefix as a complete stroke.
 function prefixPoints(stroke, localMs) {
   const points = stroke.points ?? stroke.Points ?? [];
   const prefix = [];

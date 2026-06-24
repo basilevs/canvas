@@ -669,20 +669,12 @@ export function colorFromUserId(userId) {
 // - Option A: midpoint quadratic smoothing.
 // - R3: one stroke() per span with per-span averaged width.
 //
-// Clipping (`upToMs`) is resolved before smoothing by filtering the visible
-// points. The smoothing step itself is time/clipping-agnostic and only consumes
-// the visible point list.
-export function drawStrokePath(context, points, { scale, color, baseWidth, upToMs = Infinity }) {
-  const visiblePoints = [];
-  for (const point of points) {
-    const offset = point.timeOffset ?? point.TimeOffset ?? 0;
-    if (offset > upToMs) {
-      break;
-    }
-    visiblePoints.push(point);
-  }
-
-  if (visiblePoints.length === 0) {
+// Time clipping is handled upstream (ReplayEngine passes a visible point
+// prefix). The smoothing step is clipping-agnostic and renders the points it
+// receives.
+// This may cause jitter of the end of the drawn part of the stroke, but the jitter is deemed acceptable now (not visible).
+export function drawStrokePath(context, points, { scale, color, baseWidth }) {
+  if (points.length === 0) {
     return;
   }
 
@@ -690,7 +682,7 @@ export function drawStrokePath(context, points, { scale, color, baseWidth, upToM
   context.lineCap = 'round';
   context.lineJoin = 'round';
 
-  const scaled = visiblePoints.map(point => ({
+  const scaled = points.map(point => ({
     x: (point.x ?? point.X) * scale,
     y: (point.y ?? point.Y) * scale,
     // Pointer Events defines 0.5 as the neutral fallback when pressure is not
