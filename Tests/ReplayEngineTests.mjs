@@ -261,6 +261,7 @@ function recordingContext() {
     beginPath() {},
     moveTo() {},
     lineTo() {},
+    quadraticCurveTo() { calls.push('quadraticCurveTo'); },
     stroke() { calls.push('stroke'); },
     arc() { calls.push('arc'); },
     fill() { calls.push('fill'); }
@@ -285,4 +286,22 @@ test('a multi-point stroke strokes segments and draws no dot', () => {
 
   assert.ok(context.calls.includes('stroke'), 'consecutive points are stroked as a segment');
   assert.ok(!context.calls.includes('fill'), 'a stroked path must not also draw a dot');
+  assert.ok(!context.calls.includes('quadraticCurveTo'), 'two-point stroke remains a straight segment');
+});
+
+test('a three-point stroke uses quadratic smoothing spans', () => {
+  const context = recordingContext();
+  drawStrokePath(
+    context,
+    [
+      { x: 0, y: 0, timeOffset: 0 },
+      { x: 5, y: 10, timeOffset: 10 },
+      { x: 10, y: 0, timeOffset: 20 }
+    ],
+    { scale: 1, color: '#000', baseWidth: 4 }
+  );
+
+  assert.ok(context.calls.includes('quadraticCurveTo'), 'three-point stroke should draw quadratic spans');
+  assert.ok(context.calls.includes('stroke'), 'quadratic spans are stroked');
+  assert.ok(!context.calls.includes('fill'), 'multi-point stroke should not render as a dot');
 });

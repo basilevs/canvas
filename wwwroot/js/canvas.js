@@ -618,10 +618,10 @@ function momentaryWidthCssPx(point, baseWidthCssPx) {
   return Math.max(0, baseWidthCssPx) * pointPressureFactor(point);
 }
 
-function pointPressureFactor(point) {
+function pointPressureFactor(point, nullFallback = 1) {
   const pressure = point.pressure ?? point.Pressure;
   if (pressure == null) {
-    return 1;
+    return nullFallback;
   }
 
   return Math.min(1, Math.max(0, pressure));
@@ -665,16 +665,24 @@ export function colorFromUserId(userId) {
   return `hsl(${hue} 75% 45%)`;
 }
 
-// Draws a stroke as a sequence of per-segment paths so line width can follow
-// pen pressure. Each point's pressure (0..1, or null when the input device
-// reports none, e.g. mouse without force) scales baseWidth, with null treated
-// as full pressure so non-pressure input keeps the configured width. Canvas 2D
-// cannot vary lineWidth within a single path, hence one stroke() per segment.
-// upToMs limits drawing to points at or before a given time offset (replay).
-// Coordinates and baseWidth are normalized (fractions of board width); `scale`
-// is the board's device-pixel width, mapping them to physical pixels.
+// Draws a stroke with Option A + R3:
+// - Option A: midpoint quadratic smoothing.
+// - R3: one stroke() per span with per-span averaged width.
+//
+// Clipping (`upToMs`) is resolved before smoothing by filtering the visible
+// points. The smoothing step itself is time/clipping-agnostic and only consumes
+// the visible point list.
 export function drawStrokePath(context, points, { scale, color, baseWidth, upToMs = Infinity }) {
-  if (points.length === 0) {
+  const visiblePoints = [];
+  for (const point of points) {
+    const offset = point.timeOffset ?? point.TimeOffset ?? 0;
+    if (offset > upToMs) {
+      break;
+    }
+    visiblePoints.push(point);
+  }
+
+  if (visiblePoints.length === 0) {
     return;
   }
 
@@ -682,47 +690,98 @@ export function drawStrokePath(context, points, { scale, color, baseWidth, upToM
   context.lineCap = 'round';
   context.lineJoin = 'round';
 
-  const pressureFactor = point => {
-    const pressure = point.pressure ?? point.Pressure;
-    return pressure == null ? 1 : pressure;
-  };
-
-  let previous = null;
-  let drewSegment = false;
-  let lastVisible = null;
-  for (const point of points) {
-    const offset = point.timeOffset ?? point.TimeOffset ?? 0;
-    if (offset > upToMs) {
-      break;
-    }
-
-    const current = {
-      x: (point.x ?? point.X) * scale,
-      y: (point.y ?? point.Y) * scale,
-      factor: pressureFactor(point)
-    };
-
-    if (previous) {
-      context.beginPath();
-      context.lineWidth = baseWidth * ((previous.factor + current.factor) / 2) * scale;
-      context.moveTo(previous.x, previous.y);
-      context.lineTo(current.x, current.y);
-      context.stroke();
-      drewSegment = true;
-    }
-
-    previous = current;
-    lastVisible = current;
-  }
+  const scaled = visiblePoints.map(point => ({
+    x: (point.x ?? point.X) * scale,
+    y: (point.y ?? point.Y) * scale,
+    // Pointer Events defines 0.5 as the neutral fallback when pressure is not
+    // supported by the device.
+    factor: pointPressureFactor(point, 0.5)
+  }));
 
   // A single click/tap (or the first frame of a replayed stroke) yields one
   // isolated point with no segment to stroke, so render it as a filled dot the
   // size of the line at that point. Without this, single taps leave no mark.
-  if (!drewSegment && lastVisible) {
-    const radius = Math.max(baseWidth * lastVisible.factor * scale, 1) / 2;
+  if (scaled.length === 1) {
+    const radius = Math.max(baseWidth * scaled[0].factor * scale, 1) / 2;
     context.beginPath();
     context.fillStyle = color;
-    context.arc(lastVisible.x, lastVisible.y, radius, 0, Math.PI * 2);
+    context.arc(scaled[0].x, scaled[0].y, radius, 0, Math.PI * 2);
     context.fill();
+    return;
   }
+
+  // Placeholder for future exclusions/toggles (for example if specific stroke
+  // categories should bypass smoothing). Current policy: only the degenerate
+  // one-point and two-point cases bypass smoothing.
+
+  // Preserve exact two-point behavior as a straight segment.
+  if (scaled.length === 2) {
+    drawStraightSegment(context, scaled[0], scaled[1], baseWidth, scale);
+    return;
+  }
+
+  // Option A midpoint smoothing with R3 per-span stroking.
+  const midpoints = [];
+  for (let i = 0; i < scaled.length - 1; i += 1) {
+    midpoints.push(midpoint(scaled[i], scaled[i + 1]));
+  }
+
+  // Leading cap: p0 -> midpoint(p0, p1), control p0.
+  drawQuadraticSpan(
+    context,
+    scaled[0],
+    scaled[0],
+    midpoints[0],
+    baseWidth,
+    scale,
+    (scaled[0].factor + scaled[1].factor) / 2
+  );
+
+  // Interior spans: midpoint(i-1, i) -> midpoint(i, i+1), control pi.
+  for (let i = 1; i < scaled.length - 1; i += 1) {
+    drawQuadraticSpan(
+      context,
+      midpoints[i - 1],
+      scaled[i],
+      midpoints[i],
+      baseWidth,
+      scale,
+      (scaled[i].factor + scaled[i + 1].factor) / 2
+    );
+  }
+
+  // Trailing cap: midpoint(p[n-2], p[n-1]) -> p[n-1], control p[n-1].
+  const last = scaled.length - 1;
+  drawQuadraticSpan(
+    context,
+    midpoints[last - 1],
+    scaled[last],
+    scaled[last],
+    baseWidth,
+    scale,
+    (scaled[last - 1].factor + scaled[last].factor) / 2
+  );
+}
+
+function drawStraightSegment(context, a, b, baseWidth, scale) {
+  context.beginPath();
+  context.lineWidth = baseWidth * ((a.factor + b.factor) / 2) * scale;
+  context.moveTo(a.x, a.y);
+  context.lineTo(b.x, b.y);
+  context.stroke();
+}
+
+function drawQuadraticSpan(context, start, control, end, baseWidth, scale, widthFactor) {
+  context.beginPath();
+  context.lineWidth = baseWidth * widthFactor * scale;
+  context.moveTo(start.x, start.y);
+  context.quadraticCurveTo(control.x, control.y, end.x, end.y);
+  context.stroke();
+}
+
+function midpoint(a, b) {
+  return {
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2
+  };
 }
