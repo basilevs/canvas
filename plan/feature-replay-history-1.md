@@ -4,13 +4,13 @@ version: 1.0
 date_created: 2026-06-13
 last_updated: 2026-06-25
 owner: basilevs
-status: 'In progress'
+status: 'Completed'
 tags: [feature, replay, history, undo, animation, frontend, rest-api]
 ---
 
 # Introduction
 
-![Status: In progress](https://img.shields.io/badge/status-In%20progress-yellow)
+![Status: Completed](https://img.shields.io/badge/status-Completed-brightgreen)
 
 Implement a video-like replay system that allows users to watch the board's drawing history animated chronologically. The replay skips periods of inactivity (configurable threshold), animates individual strokes point-by-point using stored temporal metadata, and provides VCR-style playback controls.
 
@@ -108,9 +108,9 @@ This plan also **owns undo** (single-step removal of the caller's last stroke). 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
 | TASK-034 | Unit test `Tests/ReplayEngineTests.js` (or inline in an HTML test page): verify `computeTimeline()` compresses gaps > 3s, verify `totalDurationMs` is correct, verify `seek` renders the correct state at the midpoint. | ✅ | 2026-06-17 |
-| TASK-035 | Manual test — Draw 5 strokes with 10+ second pauses between some. Click replay. Verify inactivity gaps are compressed, strokes animate point-by-point, total replay duration is much shorter than real elapsed time. Verify the textual timestamp display shows the actual wall-clock time of each stroke (not compressed). | | |
-| TASK-036 | Manual test — During replay, click pause, move scrubber to 50%, resume. Verify canvas shows correct state at midpoint and continues animating from there. | | |
-| TASK-037 | Manual test — Change speed from 1x to 4x during playback. Verify animation speeds up smoothly without jumping. | | |
+| TASK-035 | Manual test — Draw 5 strokes with 10+ second pauses between some. Click replay. Verify inactivity gaps are compressed, strokes animate point-by-point, total replay duration is much shorter than real elapsed time. Verify the textual timestamp display shows the actual wall-clock time of each stroke (not compressed). | ✅ | 2026-06-25 |
+| TASK-036 | Manual test — During replay, click pause, move scrubber to 50%, resume. Verify canvas shows correct state at midpoint and continues animating from there. | ✅ | 2026-06-25 |
+| TASK-037 | Manual test — Change speed from 1x to 4x during playback. Verify animation speeds up smoothly without jumping. | ✅ | 2026-06-25 |
 
 ### Implementation Phase 5
 
