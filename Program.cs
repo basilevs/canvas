@@ -55,6 +55,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseExceptionHandler();
 app.UseMiddleware<UserIdentityMiddleware>();
+app.UseMiddleware<HubOriginValidationMiddleware>();
 app.UseStaticFiles();
 
 app.MapGet("/favicon.ico", () => Results.Redirect("/favicon.svg", permanent: true));
