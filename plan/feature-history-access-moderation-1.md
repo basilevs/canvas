@@ -2,7 +2,7 @@
 goal: Govern the replay-history read path — membership access control plus owner-controlled visibility cut-offs (HiddenRanges) — for the collaborative whiteboard
 version: 1.0
 date_created: 2026-06-13
-last_updated: 2026-06-13
+last_updated: 2026-06-25
 owner: basilevs
 status: 'On Hold'
 tags: [feature, moderation, history, replay, access-control, rest-api]

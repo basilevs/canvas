@@ -2,7 +2,7 @@
 goal: Implement owner-controlled visibility moderation (hide/restore member contributions) for the collaborative whiteboard
 version: 1.0
 date_created: 2026-06-13
-last_updated: 2026-06-13
+last_updated: 2026-06-25
 owner: basilevs
 status: 'On Hold'
 tags: [feature, moderation, access-control, signalr, mongodb]

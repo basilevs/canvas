@@ -2,7 +2,7 @@
 goal: Keep large-history boards fast to load while preserving on-demand replay, via derived keyframes over the append-only event log
 version: 1.0
 date_created: 2026-06-13
-last_updated: 2026-06-13
+last_updated: 2026-06-25
 owner: basilevs
 status: 'On Hold'
 tags: [feature, history, replay, performance, compaction, keyframe]

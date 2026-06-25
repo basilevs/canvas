@@ -2,7 +2,7 @@
 goal: Implement video-like history replay (with inactivity compression) and single-step undo for the collaborative whiteboard
 version: 1.0
 date_created: 2026-06-13
-last_updated: 2026-06-17
+last_updated: 2026-06-25
 owner: basilevs
 status: 'In progress'
 tags: [feature, replay, history, undo, animation, frontend, rest-api]
