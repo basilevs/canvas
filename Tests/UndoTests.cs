@@ -16,9 +16,7 @@ public sealed class UndoTests
 {
     private const string BoardName = "undo-board";
 
-    private MongoDbContext _context = null!;
-    private IMongoClient _client = null!;
-    private string _databaseName = null!;
+    private MongoTestSupport _mongoSupport = null!;
     private StrokeEventRepository _strokeEvents = null!;
     private InMemoryBoardRepository _boardService = null!;
     private InMemoryUserProfileRepository _userProfiles = null!;
@@ -29,8 +27,8 @@ public sealed class UndoTests
     [TestInitialize]
     public async Task SetUpAsync()
     {
-        (_context, _client, _databaseName) = await MongoTestSupport.CreateContextAsync(TestContext.CancellationTokenSource.Token);
-        _strokeEvents = new StrokeEventRepository(_context);
+        _mongoSupport = new MongoTestSupport(TestContext.CancellationTokenSource.Token);
+        _strokeEvents = new StrokeEventRepository(_mongoSupport.Context);
         _boardService = new InMemoryBoardRepository();
         _userProfiles = new InMemoryUserProfileRepository();
         _group = new TestWhiteboardClient();
@@ -39,10 +37,7 @@ public sealed class UndoTests
     [TestCleanup]
     public async Task TearDownAsync()
     {
-        if (_client is not null && _databaseName is not null)
-        {
-            await MongoTestSupport.DropDatabaseAsync(_client, _databaseName);
-        }
+        await _mongoSupport.DisposeAsync();
     }
 
     [TestMethod]

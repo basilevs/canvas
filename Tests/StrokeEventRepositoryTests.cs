@@ -7,25 +7,20 @@ namespace Canvas.Tests;
 [TestClass]
 public sealed class StrokeEventRepositoryTests
 {
-    private MongoDbContext _context = null!;
-    private IMongoClient _client = null!;
-    private string _databaseName = null!;
+    private MongoTestSupport _mongoSupport = null!;
     private StrokeEventRepository _service = null!;
 
     [TestInitialize]
     public async Task SetUpAsync()
     {
-        (_context, _client, _databaseName) = await MongoTestSupport.CreateContextAsync(TestContext.CancellationTokenSource.Token);
-        _service = new StrokeEventRepository(_context);
+        _mongoSupport = new MongoTestSupport(TestContext.CancellationTokenSource.Token);
+        _service = new StrokeEventRepository(_mongoSupport.Context);
     }
 
     [TestCleanup]
     public async Task TearDownAsync()
     {
-        if (_client is not null && _databaseName is not null)
-        {
-            await MongoTestSupport.DropDatabaseAsync(_client, _databaseName);
-        }
+        await _mongoSupport.DisposeAsync();
     }
 
     public TestContext TestContext { get; set; } = null!;

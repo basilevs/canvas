@@ -10,11 +10,15 @@ namespace Canvas.Tests;
 /// cluster connection string from user-secrets (the same id the app uses) or the
 /// <c>MongoDB__ConnectionString</c> environment variable, and provisions a uniquely
 /// named throwaway database that the caller drops on cleanup. When the cluster is
-/// unreachable, <see cref="CreateContextAsync"/> calls <c>Assert.Inconclusive</c>
+/// unreachable, <see cref="MongoTestSupport"/> constructor calls <c>Assert.Inconclusive</c>
 /// so the suite stays green in offline environments.
 /// </summary>
-internal static class MongoTestSupport
+internal class MongoTestSupport: IAsyncDisposable
 {
+    public readonly MongoDbContext Context;
+    public readonly IMongoClient Client;
+    private readonly string _databaseName;
+
     public static string? ResolveConnectionString()
     {
         var configuration = new ConfigurationBuilder()
@@ -35,11 +39,11 @@ internal static class MongoTestSupport
 
     /// <summary>
     /// Creates a <see cref="MongoDbContext"/> bound to a fresh test database and
-    /// verifies connectivity with a ping. Returns the context, the owning client,
-    /// and the database name; the test must drop the database via
-    /// <see cref="DropDatabaseAsync"/>.
+    /// verifies connectivity with a ping.
+    /// The test must drop the database via
+    /// <see cref="DisposeAsync"/>.
     /// </summary>
-    public static async Task<(MongoDbContext Context, IMongoClient Client, string DatabaseName)> CreateContextAsync(CancellationToken cancellationToken)
+    public MongoTestSupport(CancellationToken cancellationToken)
     {
         var connectionString = ResolveConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -47,19 +51,19 @@ internal static class MongoTestSupport
             Assert.Inconclusive("No MongoDB connection string configured (user-secrets MongoDB:ConnectionString or MongoDB__ConnectionString).");
         }
 
-        var databaseName = NewDatabaseName();
+        _databaseName = NewDatabaseName();
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["MongoDB:DatabaseName"] = databaseName
+                ["MongoDB:DatabaseName"] = _databaseName
             })
             .Build();
 
-        var client = new MongoClient(connectionString);
+        Client = new MongoClient(connectionString);
 
         try
         {
-            await client.GetDatabase(databaseName).RunCommandAsync(
+            Client.GetDatabase(_databaseName).RunCommand(
                 (Command<MongoDB.Bson.BsonDocument>)"{ ping: 1 }",
                 cancellationToken: cancellationToken);
         }
@@ -70,12 +74,11 @@ internal static class MongoTestSupport
 
 
         var logger = LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<MongoDbContext>();
-        var context = new MongoDbContext(client, configuration, ICancellationTokenProvider.Wrap(cancellationToken), logger);
-        return (context, client, databaseName);
+        Context = new MongoDbContext(Client, configuration, ICancellationTokenProvider.Wrap(cancellationToken), logger);
     }
 
-    public static Task DropDatabaseAsync(IMongoClient client, string databaseName)
+    public async ValueTask DisposeAsync()
     {
-        return client.DropDatabaseAsync(databaseName);
+        await Client.DropDatabaseAsync(_databaseName);
     }
 }
